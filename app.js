@@ -3064,6 +3064,9 @@
 
     if (opts.meteor) {
       buildMeteorObject(group, opts.size || 12);
+      // Align the airframe with the entry path so the flame and smoke trail sit
+      // exactly on the line from the spawn point to the target.
+      if (opts.dir) group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), opts.dir);
       bombRoot.add(group);
       bombObject = group;
       bombFall = bombFall || {};
@@ -3266,18 +3269,27 @@
     const startY = meteor
       ? clamp(Math.max(2600, fx.r5 * 0.55, 2400), 2400, 32000)
       : fx.hob + Math.max(1300, fx.hob * 0.5);
-    const entry = meteor
-      ? clamp(fx.r5 * 0.55, 900, 18000)
-      : 0;
+    // Meteorites always fall steeply — 30° off vertical — from a random bearing,
+    // so the run out to the spawn point follows from the drop.
+    const entryBearing = Math.random() * TAU;
+    const entryRun = meteor ? (startY - fx.hob) * Math.tan(deg(30)) : 0;
+    const startX = x + Math.sin(entryBearing) * entryRun;
+    const startZ = z + Math.cos(entryBearing) * entryRun;
     showTargetMarker(x, z, fx);
-    createBombObject(x, startY, z, { meteor, size: meteor ? clamp(Math.pow(weapon.yieldKt, 0.28) * 2.2, 6, 160) : 0 });
+    createBombObject(startX, startY, startZ, {
+      meteor,
+      size: meteor ? clamp(Math.pow(weapon.yieldKt, 0.28) * 2.2, 6, 160) : 0,
+      dir: meteor
+        ? new THREE.Vector3(startX - x, startY - fx.hob, startZ - z).normalize()
+        : null
+    });
     bombFall = {
       start: elapsed,
       duration: meteor ? 2.1 : weapon.yieldKt > 1000 ? 3.1 : 2.7,
       startY,
       endY: fx.hob,
-      startX: x - entry * 0.62,
-      startZ: z - entry * 0.78,
+      startX,
+      startZ,
       x,
       z
     };
@@ -3289,11 +3301,18 @@
       : 'Airburst inbound — brace for shockwave';
     playFallWhoosh(bombFall.duration, weapon.yieldKt, meteor);
 
-    const distanceGoal = clamp(Math.max(fx.r5 * 4.0, 4200), 4200, 45000);
+    // Frame the whole entry path: with a random bearing, holding on the impact
+    // point alone can leave the incoming meteorite off screen.
+    const pathLength = meteor ? Math.hypot(entryRun, startY - fx.hob) : 0;
+    const distanceGoal = clamp(
+      Math.max(fx.r5 * 4.0, pathLength * 1.2, 4200),
+      4200,
+      meteor ? 60000 : 45000
+    );
     beginCameraTween({
-      tx: x,
-      tz: z,
-      ty: meteor ? startY * 0.32 : fx.hob * 0.75,
+      tx: meteor ? x + (startX - x) * 0.5 : x,
+      tz: meteor ? z + (startZ - z) * 0.5 : z,
+      ty: meteor ? (startY + fx.hob) * 0.5 : fx.hob * 0.75,
       distance: distanceGoal,
       azimuth: cameraRig.azimuth,
       pitch: IS_SMALL ? 0.42 : 0.36
@@ -3310,8 +3329,9 @@
     const pz = lerp(bombFall.startZ ?? bombFall.z, bombFall.z, fallEase);
     bombObject.position.set(px, y, pz);
     if (meteor) {
-      bombObject.rotation.x += frameDt * 2.1;
-      bombObject.rotation.z += frameDt * 1.5;
+      // Roll about the entry axis only, so the trail keeps pointing back up the
+      // flight path instead of tumbling out of line.
+      bombObject.rotateY(frameDt * 2.4);
     } else {
       bombObject.rotation.y += frameDt * 0.7;
       bombObject.rotation.z = Math.sin(u * 19) * 0.06;
