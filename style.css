@@ -184,6 +184,53 @@ body {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
+.mode-switch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(11, 18, 22, 0.56);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.mode-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dim);
+  min-height: 28px;
+  padding: 0 11px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.mode-btn:hover {
+  color: var(--ink);
+}
+
+.mode-btn:focus-visible {
+  outline: 2px solid var(--hazard);
+  outline-offset: 2px;
+}
+
+.mode-btn[aria-pressed="true"] {
+  background: rgba(255, 196, 91, 0.16);
+  color: var(--hazard);
+  box-shadow: inset 0 0 0 1px rgba(255, 196, 91, 0.42);
+}
+
+.mode-btn:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
 .sound-icon {
   display: inline-block;
   margin-right: 6px;
@@ -233,7 +280,7 @@ body {
   position: relative;
 }
 
-#nukeSelect {
+.select-shell select {
   width: 100%;
   height: 47px;
   appearance: none;
@@ -250,21 +297,21 @@ body {
   cursor: pointer;
 }
 
-#nukeSelect:hover {
+.select-shell select:hover {
   border-color: rgba(255, 196, 91, 0.52);
 }
 
-#nukeSelect:focus-visible {
+.select-shell select:focus-visible {
   outline: 2px solid var(--hazard);
   outline-offset: 2px;
 }
 
-#nukeSelect:disabled {
+.select-shell select:disabled {
   opacity: 0.55;
   cursor: wait;
 }
 
-#nukeSelect option {
+.select-shell select option {
   background: #10191e;
   color: var(--ink);
   font-family: var(--sans);
@@ -716,6 +763,7 @@ body {
   font-size: 13px;
 }
 
+body[data-phase="alert"] #scene,
 body[data-phase="falling"] #scene {
   cursor: default;
 }
@@ -756,6 +804,13 @@ body[data-phase="aftermath"] #scene:active {
     gap: 6px;
   }
 
+  .mode-btn {
+    min-height: 27px;
+    padding: 0 8px;
+    font-size: 8px;
+    letter-spacing: 0.07em;
+  }
+
   .chrome-btn {
     min-height: 31px;
     padding: 0 9px;
@@ -783,7 +838,7 @@ body[data-phase="aftermath"] #scene:active {
     font-size: 8px;
   }
 
-  #nukeSelect {
+  .select-shell select {
     height: 42px;
     font-size: 15px;
   }

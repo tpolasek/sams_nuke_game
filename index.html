@@ -19,6 +19,10 @@
         <h1>GROUND<span>ZERO</span></h1>
       </div>
       <div class="top-actions">
+        <div class="mode-switch" role="group" aria-label="Threat type">
+          <button id="modeNuke" class="mode-btn" type="button" aria-pressed="true">NUKE</button>
+          <button id="modeMeteor" class="mode-btn" type="button" aria-pressed="false">METEOR</button>
+        </div>
         <button id="soundBtn" class="chrome-btn" type="button" aria-pressed="true">
           <span class="sound-icon" aria-hidden="true">◖</span><span class="btn-label">SOUND ON</span>
         </button>
@@ -27,9 +31,10 @@
     </header>
 
     <section class="panel weapon-panel" aria-label="Weapon selection">
-      <div class="panel-index">01 <span>WARHEAD</span></div>
+      <div class="panel-index">01 <span id="weaponLabel">WARHEAD</span></div>
       <div class="select-shell">
         <select id="nukeSelect" aria-label="Select a nuclear weapon"></select>
+        <select id="meteorSelect" aria-label="Select a meteorite" hidden></select>
         <span class="select-arrow" aria-hidden="true"></span>
       </div>
       <div class="payload-line">
@@ -76,7 +81,7 @@
     <div id="altimeter" class="altimeter" hidden>
       <span class="alt-line"></span>
       <div>
-        <small>WEAPON ALTITUDE</small>
+        <small id="altLabel">WEAPON ALTITUDE</small>
         <strong id="altitude">2,400 M</strong>
       </div>
     </div>

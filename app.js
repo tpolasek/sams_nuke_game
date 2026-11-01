@@ -35,6 +35,19 @@
     { id: 'samboy', name: 'Sam Boy', yieldKt: 1000000, label: '1 Gt' }
   ];
 
+  // Meteorite yields are kinetic-energy equivalents, so they share the blast
+  // model with warheads but land as ground bursts and leave a crater.
+  const METEORS = [
+    { id: 'pallas', name: 'Pallas Pebble', yieldKt: 1, label: '1 kt', kind: 'meteor', core: 'stone' },
+    { id: 'eros', name: 'Eros Shard', yieldKt: 5, label: '5 kt', kind: 'meteor', core: 'iron' },
+    { id: 'apophis', name: 'Apophis Splinter', yieldKt: 25, label: '25 kt', kind: 'meteor', core: 'stone' },
+    { id: 'tunguska', name: 'Tunguska Heir', yieldKt: 1000, label: '1 Mt', kind: 'meteor', core: 'ice' },
+    { id: 'vredefort', name: 'Vredefort Strike', yieldKt: 10000, label: '10 Mt', kind: 'meteor', core: 'iron' },
+    { id: 'chicxulub', name: 'Chicxulub Echo', yieldKt: 100000, label: '100 Mt', kind: 'meteor', core: 'stone' }
+  ];
+
+  const isMeteor = (weapon) => weapon.kind === 'meteor';
+
   function effectsFor(kt) {
     const scale = Math.cbrt(kt / 15);
     return {
@@ -47,8 +60,31 @@
     };
   }
 
-  let selectedNuke = NUKES.find((n) => n.id === 'littleboy');
-  let selectedEffects = effectsFor(selectedNuke.yieldKt);
+  function effectsForImpact(kt) {
+    const base = effectsFor(kt);
+    const boost = 1.12; // a contact burst couples more energy into the ground
+    return {
+      ...base,
+      hob: 0,
+      r20: base.r20 * boost,
+      r5: base.r5 * boost,
+      r1: base.r1 * boost,
+      thermal: base.thermal * 0.62,
+      crater: clamp(base.r20 * 0.42, 30, 6000)
+    };
+  }
+
+  function effectsForWeapon(weapon) {
+    return isMeteor(weapon) ? effectsForImpact(weapon.yieldKt) : effectsFor(weapon.yieldKt);
+  }
+
+  let mode = 'nuke';
+  const modeWeapons = {
+    nuke: NUKES.find((n) => n.id === 'littleboy'),
+    meteor: METEORS.find((m) => m.id === 'apophis')
+  };
+  let selectedWeapon = modeWeapons[mode];
+  let selectedEffects = effectsForWeapon(selectedWeapon);
 
   function fmtYield(kt) {
     if (kt >= 1000000) {
@@ -68,6 +104,11 @@
 
   function fmtMeters(m) {
     return `${Math.round(m).toLocaleString('en-US')} m`;
+  }
+
+  function fmtCrater(radius) {
+    const d = radius * 2;
+    return d >= 10000 ? `${(d / 1000).toFixed(0)} KM` : `${Math.round(d).toLocaleString('en-US')} M`;
   }
 
   function mulberry32(seed) {
@@ -216,12 +257,12 @@
   // UI / state references
   // ---------------------------------------------------------------------------
   const state = {
-    phase: 'idle', // idle | falling | blast | aftermath
+    phase: 'idle', // idle | alert | falling | blast | aftermath
     target: null,
     targetOnLand: false,
     blastStart: 0,
     reportStart: 0,
-    nuke: selectedNuke,
+    weapon: selectedWeapon,
     effects: selectedEffects,
     destroyed: 0,
     landmarksDestroyed: 0,
@@ -243,8 +284,12 @@
     unsupported: $('#unsupported'),
     flash: $('#flash'),
     select: $('#nukeSelect'),
+    meteorSelect: $('#meteorSelect'),
+    weaponLabel: $('#weaponLabel'),
     yieldBadge: $('#yieldBadge'),
     weaponMeta: $('#weaponMeta'),
+    modeNuke: $('#modeNuke'),
+    modeMeteor: $('#modeMeteor'),
     status: $('#status'),
     statusLabel: $('#statusLabel'),
     statusDetail: $('#statusDetail'),
@@ -262,6 +307,7 @@
     hintText: $('#hintText'),
     altimeter: $('#altimeter'),
     altitude: $('#altitude'),
+    altLabel: $('#altLabel'),
     resetBtn: $('#resetBtn'),
     soundBtn: $('#soundBtn')
   };
@@ -2664,7 +2710,11 @@
       { radius: fx.thermal, color: '#ffe37a', label: 'THERMAL', opacity: 0.6, alpha: 0.045 },
       { radius: fx.r1, color: '#9fb9c2', label: '1 PSI', opacity: 0.5, alpha: 0.03 }
     ];
+    if (fx.crater) {
+      ringDefs.unshift({ radius: fx.crater, color: '#e3d2ae', label: 'CRATER', opacity: 0.95, alpha: 0.16 });
+    }
     const rings = [];
+    const fills = [];
     for (const def of ringDefs) {
       const band = new THREE.Mesh(
         new THREE.RingGeometry(0.975, 1, 160),
@@ -2692,6 +2742,7 @@
       fill.position.set(x, 3, z);
       fill.renderOrder = 4;
       targetRoot.add(fill);
+      fills.push(fill);
 
       const label = makeRingLabel(def.label, def.color, def.radius);
       label.position.set(x + def.radius * 0.72, 12, z - def.radius * 0.72);
@@ -2724,13 +2775,77 @@
     traj.computeLineDistances();
     targetRoot.add(traj);
 
-    targetRings = { x, z, fx, rings, group: targetRoot, helpers: [beam, traj] };
+    targetRings = { x, z, fx, rings, fills, group: targetRoot, helpers: [beam, traj] };
   }
 
-  function createBombObject(x, y, z) {
+  function buildMeteorObject(group, size) {
+    group.scale.setScalar(size);
+    const geo = new THREE.IcosahedronGeometry(1, 1);
+    const pos = geo.attributes.position;
+    const rng = mulberry32(4242);
+    for (let i = 0; i < pos.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(pos, i);
+      v.multiplyScalar(0.68 + rng() * 0.62);
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color: 0x3b3530, roughness: 0.95, metalness: 0.12,
+      emissive: 0xff5a12, emissiveIntensity: 1.5
+    }));
+    group.add(rock);
+
+    const core = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0xffe0a8, transparent: true, opacity: 0.95,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    core.scale.set(6, 6, 1);
+    group.add(core);
+
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0xff7a22, transparent: true, opacity: 0.42,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    halo.scale.set(14, 14, 1);
+    group.add(halo);
+
+    const flame = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.5, 2.7, 7.5, 9, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xff9a44, transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+      })
+    );
+    flame.position.y = 5.4;
+    group.add(flame);
+
+    const smoke = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 4.2, 34, 9, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0x8d8579, transparent: true, opacity: 0.16,
+        depthWrite: false, side: THREE.DoubleSide
+      })
+    );
+    smoke.position.y = 22;
+    group.add(smoke);
+  }
+
+  function createBombObject(x, y, z, opts = {}) {
     bombRoot.clear();
     const group = new THREE.Group();
     group.position.set(x, y, z);
+
+    if (opts.meteor) {
+      buildMeteorObject(group, opts.size || 12);
+      bombRoot.add(group);
+      bombObject = group;
+      bombFall = bombFall || {};
+      bombLight = new THREE.PointLight(0xff8a3a, 14, 9000, 1.5);
+      bombLight.position.copy(group.position);
+      bombRoot.add(bombLight);
+      return group;
+    }
+
     group.scale.setScalar(3.4);
 
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0xb9bbb3, roughness: 0.32, metalness: 0.85 });
@@ -2845,6 +2960,49 @@
     return a + d * t;
   }
 
+  // Clicking the map sounds the air-raid siren for five seconds, then the
+  // weapon is released.
+  const ALERT_MS = 5000;
+  let alertPending = null;
+  let alertEnd = 0;
+  let alertTimer = 0;
+
+  function armStrike(x, z, onLand) {
+    if (state.phase === 'falling' || state.phase === 'blast' || state.phase === 'alert') return;
+    alertPending = { x, z, onLand, from: state.phase };
+    alertEnd = performance.now() + ALERT_MS;
+    alertTimer = setTimeout(releaseAlert, ALERT_MS);
+    state.phase = 'alert';
+    document.body.dataset.phase = 'alert';
+    setInputEnabled(false);
+    setStatus('AIR RAID ALERT', 'DETONATION IN 5.0s', 'falling');
+    dom.hintText.textContent = isMeteor(selectedWeapon)
+      ? 'Impact imminent — brace for impact'
+      : 'Airburst imminent — brace for shockwave';
+    playSiren();
+  }
+
+  function cancelAlert() {
+    if (alertTimer) clearTimeout(alertTimer);
+    alertTimer = 0;
+    alertPending = null;
+    stopSiren();
+  }
+
+  function releaseAlert() {
+    if (!alertPending) return;
+    const pending = alertPending;
+    cancelAlert();
+    state.phase = pending.from;
+    launchAt(pending.x, pending.z, pending.onLand);
+  }
+
+  function updateAlert() {
+    if (!alertPending) return;
+    const remain = Math.max(0, (alertEnd - performance.now()) / 1000);
+    dom.statusDetail.textContent = `DETONATION IN ${remain.toFixed(1)}s`;
+  }
+
   function launchAt(x, z, onLand) {
     if (state.phase === 'falling' || state.phase === 'blast') return;
     if (state.phase === 'aftermath') {
@@ -2853,10 +3011,11 @@
       clearTargetMarker();
     }
     ensureAudio();
-    const nuke = selectedNuke;
-    const fx = effectsFor(nuke.yieldKt);
+    const weapon = selectedWeapon;
+    const meteor = isMeteor(weapon);
+    const fx = effectsForWeapon(weapon);
     state.phase = 'falling';
-    state.nuke = nuke;
+    state.weapon = weapon;
     state.effects = fx;
     state.target = new THREE.Vector2(x, z);
     state.targetOnLand = onLand;
@@ -2873,31 +3032,41 @@
     state.reportStart = 0;
 
     dom.report.hidden = true;
-    dom.select.disabled = true;
+    setInputEnabled(false);
     document.body.dataset.phase = 'falling';
     dom.status.dataset.state = 'falling';
-    dom.statusLabel.textContent = 'WEAPON RELEASED';
-    const startY = fx.hob + Math.max(1300, fx.hob * 0.5);
+    dom.statusLabel.textContent = meteor ? 'IMPACTOR INBOUND' : 'WEAPON RELEASED';
+    const startY = meteor
+      ? clamp(Math.max(2600, fx.r5 * 0.55, 2400), 2400, 32000)
+      : fx.hob + Math.max(1300, fx.hob * 0.5);
+    const entry = meteor
+      ? clamp(fx.r5 * 0.55, 900, 18000)
+      : 0;
     showTargetMarker(x, z, fx);
-    createBombObject(x, startY, z);
+    createBombObject(x, startY, z, { meteor, size: meteor ? clamp(Math.pow(weapon.yieldKt, 0.28) * 2.2, 6, 160) : 0 });
     bombFall = {
       start: elapsed,
-      duration: nuke.yieldKt > 1000 ? 3.1 : 2.7,
+      duration: meteor ? 2.1 : weapon.yieldKt > 1000 ? 3.1 : 2.7,
       startY,
       endY: fx.hob,
+      startX: x - entry * 0.62,
+      startZ: z - entry * 0.78,
       x,
       z
     };
     dom.altimeter.hidden = false;
+    dom.altLabel.textContent = meteor ? 'IMPACTOR ALTITUDE' : 'WEAPON ALTITUDE';
     dom.altitude.textContent = `${Math.round(startY).toLocaleString('en-US')} M`;
-    dom.hintText.textContent = 'Airburst inbound — brace for shockwave';
-    playFallWhoosh(bombFall.duration, nuke.yieldKt);
+    dom.hintText.textContent = meteor
+      ? 'Impactor inbound — brace for impact'
+      : 'Airburst inbound — brace for shockwave';
+    playFallWhoosh(bombFall.duration, weapon.yieldKt, meteor);
 
     const distanceGoal = clamp(Math.max(fx.r5 * 4.0, 4200), 4200, 45000);
     beginCameraTween({
       tx: x,
       tz: z,
-      ty: fx.hob * 0.75,
+      ty: meteor ? startY * 0.32 : fx.hob * 0.75,
       distance: distanceGoal,
       azimuth: cameraRig.azimuth,
       pitch: IS_SMALL ? 0.42 : 0.36
@@ -2906,19 +3075,29 @@
 
   function updateBombFall() {
     if (!bombFall || !bombObject) return;
+    const meteor = isMeteor(state.weapon);
     const u = clamp((elapsed - bombFall.start) / bombFall.duration, 0, 1);
     const fallEase = u * u;
     const y = lerp(bombFall.startY, bombFall.endY, fallEase);
-    bombObject.position.y = y;
-    bombObject.rotation.y += frameDt * 0.7;
-    bombObject.rotation.z = Math.sin(u * 19) * 0.06;
+    const px = lerp(bombFall.startX ?? bombFall.x, bombFall.x, fallEase);
+    const pz = lerp(bombFall.startZ ?? bombFall.z, bombFall.z, fallEase);
+    bombObject.position.set(px, y, pz);
+    if (meteor) {
+      bombObject.rotation.x += frameDt * 2.1;
+      bombObject.rotation.z += frameDt * 1.5;
+    } else {
+      bombObject.rotation.y += frameDt * 0.7;
+      bombObject.rotation.z = Math.sin(u * 19) * 0.06;
+    }
     if (bombLight) {
-      bombLight.position.set(bombFall.x, y, bombFall.z);
-      bombLight.intensity = 4 + Math.sin(elapsed * 18) * 1.5;
+      bombLight.position.set(px, y, pz);
+      bombLight.intensity = meteor
+        ? 9 + Math.sin(elapsed * 22) * 3
+        : 4 + Math.sin(elapsed * 18) * 1.5;
     }
     dom.altitude.textContent = `${Math.round(y).toLocaleString('en-US')} M`;
     const remain = Math.max(0, bombFall.duration * (1 - u));
-    dom.statusDetail.textContent = `AIRBURST IN ${remain.toFixed(1)}s · ${Math.round(y).toLocaleString('en-US')} M`;
+    dom.statusDetail.textContent = `${meteor ? 'IMPACT' : 'AIRBURST'} IN ${remain.toFixed(1)}s · ${Math.round(y).toLocaleString('en-US')} M`;
     if (u >= 1) {
       const x = bombFall.x;
       const z = bombFall.z;
@@ -3169,13 +3348,125 @@
     };
   }
 
-  function createExplosionVisuals(x, z, fx) {
+  function makeCraterTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const ctx = c.getContext('2d');
+    const cx = 256;
+    const cy = 256;
+    const rimR = 118;
+    const rng = mulberry32(90210);
+
+    // Ejecta blanket streaking outward past the rim.
+    ctx.save();
+    ctx.translate(cx, cy);
+    for (let i = 0; i < 220; i++) {
+      const a = rng() * TAU;
+      const len = rimR + 8 + rng() * 128;
+      const color = `rgba(${Math.round(120 + rng() * 40)}, ${Math.round(108 + rng() * 34)}, ${Math.round(88 + rng() * 30)}, ${(0.05 + rng() * 0.22).toFixed(3)})`;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1 + rng() * 5;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * (rimR - 6), Math.sin(a) * (rimR - 6));
+      ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Sunken bowl.
+    const bowl = ctx.createRadialGradient(cx, cy, 0, cx, cy, rimR);
+    bowl.addColorStop(0, 'rgba(16, 14, 12, 0.97)');
+    bowl.addColorStop(0.35, 'rgba(28, 24, 20, 0.95)');
+    bowl.addColorStop(0.72, 'rgba(58, 50, 41, 0.92)');
+    bowl.addColorStop(0.9, 'rgba(96, 84, 68, 0.9)');
+    bowl.addColorStop(1, 'rgba(74, 65, 54, 0.28)');
+    ctx.fillStyle = bowl;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rimR, 0, TAU);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(158, 142, 116, 0.75)';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rimR - 3, 0, TAU);
+    ctx.stroke();
+
+    for (let i = 0; i < 26; i++) {
+      const a = rng() * TAU;
+      const r0 = rng() * rimR * 0.45;
+      const r1 = rimR * (0.55 + rng() * 0.4);
+      const drift = (rng() - 0.5) * 0.3;
+      ctx.strokeStyle = `rgba(9, 8, 7, ${(0.2 + rng() * 0.35).toFixed(3)})`;
+      ctx.lineWidth = 1 + rng() * 2.4;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+      ctx.lineTo(cx + Math.cos(a + drift) * r1, cy + Math.sin(a + drift) * r1);
+      ctx.stroke();
+    }
+
+    ctx.globalCompositeOperation = 'destination-in';
+    const mask = ctx.createRadialGradient(cx, cy, rimR * 0.55, cx, cy, 252);
+    mask.addColorStop(0, 'rgba(0,0,0,1)');
+    mask.addColorStop(0.68, 'rgba(0,0,0,0.92)');
+    mask.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = mask;
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.globalCompositeOperation = 'source-over';
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    return tex;
+  }
+
+  function createCrater(x, z, radius) {
     const group = new THREE.Group();
-    group.position.set(x, fx.hob, z);
+    group.position.set(x, 0.9, z);
+    group.scale.setScalar(0.001);
+
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(radius * 2.15, 72),
+      new THREE.MeshBasicMaterial({
+        map: makeCraterTexture(), transparent: true, depthWrite: false
+      })
+    );
+    disc.rotation.x = -Math.PI / 2;
+    disc.renderOrder = 3;
+    group.add(disc);
+
+    // Raised rim gives the crater real relief from an oblique camera.
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(radius * 0.98, radius * 0.055, 8, 72),
+      new THREE.MeshStandardMaterial({ color: 0x6a6051, roughness: 0.98, metalness: 0.02 })
+    );
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.y = radius * 0.018;
+    rim.scale.z = 0.4;
+    group.add(rim);
+
+    const glow = new THREE.Mesh(
+      new THREE.CircleGeometry(radius * 0.86, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0xff6a20, transparent: true, opacity: 0.55,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      })
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.y = 1.6;
+    glow.renderOrder = 4;
+    group.add(glow);
+
+    effectsRoot.add(group);
+    return { group, disc, rim, glow, radius };
+  }
+
+  function createExplosionVisuals(x, z, fx, groundImpact = false) {
+    const group = new THREE.Group();
+    group.position.set(x, groundImpact ? Math.max(12, fx.fireball * 0.45) : fx.hob, z);
     effectsRoot.add(group);
 
     const shell = createFireballMesh(1, 0xfffbe8, 0xffc95a, 0xff6120, 1);
-    shell.scale.setScalar(Math.max(1, fx.fireball * 0.2));
+    shell.scale.setScalar(Math.max(1, fx.fireball * (groundImpact ? 0.16 : 0.2)));
     group.add(shell);
 
     const core = new THREE.Mesh(
@@ -3204,7 +3495,7 @@
     group.add(glow);
 
     const light = new THREE.PointLight(0xffb15a, 0, 0, 0);
-    light.position.set(x, fx.hob, z);
+    light.position.set(x, Math.max(fx.hob, 30), z);
     effectsRoot.add(light);
 
     const ringGeoThick = new THREE.RingGeometry(0.955, 1, 160);
@@ -3233,16 +3524,22 @@
     });
     effectsRoot.add(dust20.points);
 
-    const condensation = new THREE.Mesh(
-      new THREE.RingGeometry(0.86, 1, 96),
-      new THREE.MeshBasicMaterial({
-        color: 0xdfe8e5, transparent: true, opacity: 0,
-        side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending
-      })
-    );
-    condensation.rotation.x = -Math.PI / 2;
-    condensation.position.set(x, fx.hob, z);
-    effectsRoot.add(condensation);
+    let condensation = null;
+    if (!groundImpact) {
+      condensation = new THREE.Mesh(
+        new THREE.RingGeometry(0.86, 1, 96),
+        new THREE.MeshBasicMaterial({
+          color: 0xdfe8e5, transparent: true, opacity: 0,
+          side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending
+        })
+      );
+      condensation.rotation.x = -Math.PI / 2;
+      condensation.position.set(x, fx.hob, z);
+      effectsRoot.add(condensation);
+    }
+
+    // A ground impact excavates a permanent crater instead of a scorch mark.
+    const crater = groundImpact && state.targetOnLand ? createCrater(x, z, fx.crater) : null;
 
     let ripple = null;
     if (!state.targetOnLand) {
@@ -3259,7 +3556,7 @@
     }
 
     let scorch = null;
-    if (state.targetOnLand) {
+    if (state.targetOnLand && !groundImpact) {
       const tex = makeScorchTexture();
       const mat = new THREE.MeshBasicMaterial({
         map: tex, transparent: true, opacity: 0, depthWrite: false
@@ -3289,6 +3586,8 @@
       condensation,
       ripple,
       scorch,
+      crater,
+      groundImpact,
       fireballRadius: Math.max(10, fx.fireball),
       fx,
       x,
@@ -3298,8 +3597,13 @@
 
   function detonate(x, z) {
     const fx = state.effects;
-    if (targetRings && targetRings.helpers) {
-      targetRings.helpers.forEach((h) => { h.visible = false; });
+    const weapon = state.weapon;
+    const meteor = isMeteor(weapon);
+    if (targetRings) {
+      // The zone fills are a targeting aid; left on after the strike they haze
+      // over the ground detail (crater, scorch), so drop them once it lands.
+      if (targetRings.helpers) targetRings.helpers.forEach((h) => { h.visible = false; });
+      if (targetRings.fills) targetRings.fills.forEach((f) => { f.visible = false; });
     }
     state.phase = 'blast';
     state.blastStart = elapsed;
@@ -3308,8 +3612,10 @@
     dom.altimeter.hidden = true;
     document.body.dataset.phase = 'blast';
     dom.status.dataset.state = 'blast';
-    dom.statusLabel.textContent = 'AIRBURST';
-    dom.statusDetail.textContent = `${state.nuke.name} · ${fmtYield(state.nuke.yieldKt)} · ${fmtMeters(state.effects.hob)}`;
+    dom.statusLabel.textContent = meteor ? 'IMPACT' : 'AIRBURST';
+    dom.statusDetail.textContent = meteor
+      ? `${weapon.name} · ${fmtYield(weapon.yieldKt)} · ${state.targetOnLand ? `CRATER Ø ${fmtCrater(fx.crater)}` : 'WATER IMPACT'}`
+      : `${weapon.name} · ${fmtYield(weapon.yieldKt)} · ${fmtMeters(fx.hob)}`;
 
     // Bright screen flash, re-triggered for repeat strikes.
     dom.flash.classList.remove('fire');
@@ -3322,27 +3628,34 @@
     state.plume = createParticleSystem(LOW_POWER ? 480 : 1100, smokeTexture, THREE.NormalBlending, 4);
     state.glow = createParticleSystem(glowCount, glowTexture, THREE.AdditiveBlending, 6);
     debrisSystem = makeDebrisSystem(LOW_POWER ? 420 : 760);
-    state.explosionVisuals = createExplosionVisuals(x, z, state.effects);
+    state.explosionVisuals = createExplosionVisuals(x, z, fx, meteor);
 
-    spawnExplosionParticles(x, z, state.effects, state.targetOnLand);
-    planDamage(x, z, state.effects);
-    applyTreeDamage(x, z, state.effects);
-    damageBridges(x, z, state.effects);
+    if (meteor) spawnImpactParticles(x, z, fx, state.targetOnLand);
+    else spawnExplosionParticles(x, z, fx, state.targetOnLand);
+    planDamage(x, z, fx);
+    applyTreeDamage(x, z, fx);
+    damageBridges(x, z, fx);
 
-    cameraRig.shake = clamp(0.55 + Math.log10(state.nuke.yieldKt + 1) * 0.26, 0.65, 1.6);
+    cameraRig.shake = clamp(0.55 + Math.log10(weapon.yieldKt + 1) * 0.26, 0.65, 1.6);
 
-    const cloudRise = clamp(fx.hob * 1.9 + fx.fireball * 2.6, 700, 16000);
-    const blastDistance = clamp(Math.max(fx.r5 * 1.5, fx.fireball * 5.5, cloudRise * 2.2, 5200), 5200, 60000);
+    const cloudRise = meteor
+      ? clamp(fx.r5 * 0.5, 500, 14000)
+      : clamp(fx.hob * 1.9 + fx.fireball * 2.6, 700, 16000);
+    const blastDistance = clamp(
+      Math.max(fx.r5 * 1.5, fx.fireball * 5.5, cloudRise * 2.2, fx.crater ? fx.crater * 6.5 : 0, 5200),
+      5200,
+      60000
+    );
     beginCameraTween({
       tx: x,
       tz: z,
-      ty: clamp((fx.hob + cloudRise) * 0.5, 200, 30000),
+      ty: meteor ? clamp(cloudRise * 0.4, 120, 9000) : clamp((fx.hob + cloudRise) * 0.5, 200, 30000),
       distance: blastDistance,
       azimuth: cameraRig.azimuth - 0.1,
       pitch: IS_SMALL ? 0.28 : 0.24
     }, 10.0);
 
-    playExplosion(state.nuke.yieldKt);
+    playExplosion(weapon.yieldKt, meteor);
     showReport();
     state.statsDirty = true;
   }
@@ -3498,6 +3811,114 @@
     }
   }
 
+  function spawnImpactParticles(x, z, fx, onLand) {
+    const smoke = state.smoke;
+    const glow = state.glow;
+    const plume = state.plume || smoke;
+    if (!smoke || !glow) return;
+
+    const crater = Math.max(30, fx.crater || 60);
+    const isMassive = fx.r5 > 4000;
+    const palette = onLand
+      ? [0x8a7d68, 0x6f6455, 0xa2957f]
+      : [0xc8dade, 0xa9c6cd, 0xe4eef0];
+    const pick = () => palette[Math.floor(Math.random() * palette.length)];
+
+    // Ejecta curtain thrown out of the crater on ballistic arcs.
+    const curtain = LOW_POWER ? 380 : isMassive ? 1400 : 850;
+    for (let i = 0; i < curtain; i++) {
+      const a = Math.random() * TAU;
+      const r = crater * (0.65 + Math.random() * 0.55);
+      const speed = crater * (1.5 + Math.random() * 3.2);
+      smoke.spawn({
+        x: x + Math.cos(a) * r,
+        y: 4 + Math.random() * crater * 0.12,
+        z: z + Math.sin(a) * r,
+        vx: Math.cos(a) * speed * (0.5 + Math.random() * 0.6),
+        vy: crater * (1.3 + Math.random() * 2.3),
+        vz: Math.sin(a) * speed * (0.5 + Math.random() * 0.6),
+        size0: crater * (0.06 + Math.random() * 0.12),
+        size1: crater * (0.24 + Math.random() * 0.46),
+        life: 2.4 + Math.random() * 3.4,
+        alpha: 0.2 + Math.random() * 0.2,
+        drag: 0.14,
+        gravity: -170,
+        color: pick()
+      });
+    }
+
+    // Rising column of dust directly above the crater.
+    const columnCount = LOW_POWER ? 160 : isMassive ? 620 : 340;
+    for (let i = 0; i < columnCount; i++) {
+      const a = Math.random() * TAU;
+      const r = crater * (0.15 + Math.random() * 0.75);
+      const rise = crater * (0.35 + Math.random() * 1.4);
+      plume.spawn({
+        x: x + Math.cos(a) * r,
+        y: 6 + Math.random() * crater * 0.25,
+        z: z + Math.sin(a) * r,
+        vx: Math.cos(a) * crater * 0.22,
+        vy: rise,
+        vz: Math.sin(a) * crater * 0.22,
+        size0: crater * (0.12 + Math.random() * 0.2),
+        size1: crater * (0.55 + Math.random() * 0.85),
+        life: (isMassive ? 13 : 8) + Math.random() * 7,
+        delay: Math.random() * 1.2,
+        alpha: (0.16 + Math.random() * 0.16) * (isMassive ? 0.6 : 1),
+        drag: 0.2,
+        buoyancy: crater * 0.02 + 4,
+        color: pick()
+      });
+    }
+
+    // Molten debris and sparks.
+    const sparkCount = LOW_POWER ? 140 : isMassive ? 620 : 340;
+    for (let i = 0; i < sparkCount; i++) {
+      const theta = Math.random() * TAU;
+      const phi = Math.acos(0.35 + Math.random() * 0.65);
+      const speed = crater * (1.1 + Math.random() * 2.6);
+      glow.spawn({
+        x: x + Math.cos(theta) * crater * 0.3,
+        y: 6 + Math.random() * crater * 0.2,
+        z: z + Math.sin(theta) * crater * 0.3,
+        vx: Math.cos(theta) * Math.sin(phi) * speed,
+        vy: Math.cos(phi) * speed * 1.15 + crater * 0.5,
+        vz: Math.sin(theta) * Math.sin(phi) * speed,
+        size0: crater * (0.03 + Math.random() * 0.07),
+        size1: crater * (0.01 + Math.random() * 0.03),
+        life: 0.9 + Math.random() * 2.1,
+        delay: Math.random() * 0.25,
+        alpha: 0.7 + Math.random() * 0.3,
+        drag: 0.25,
+        gravity: -320,
+        color: Math.random() > 0.5 ? 0xffc463 : Math.random() > 0.4 ? 0xff7a24 : 0xfff0c8
+      });
+    }
+
+    // Low surge of dust rolling out along the ground.
+    const surge = LOW_POWER ? 90 : isMassive ? 380 : 220;
+    for (let i = 0; i < surge; i++) {
+      const a = Math.random() * TAU;
+      const speed = crater * (0.9 + Math.random() * 1.8);
+      smoke.spawn({
+        x: x + Math.cos(a) * crater * 0.55,
+        y: 8 + Math.random() * crater * 0.2,
+        z: z + Math.sin(a) * crater * 0.55,
+        vx: Math.cos(a) * speed,
+        vy: crater * (0.05 + Math.random() * 0.18),
+        vz: Math.sin(a) * speed,
+        size0: crater * (0.12 + Math.random() * 0.18),
+        size1: crater * (0.5 + Math.random() * 0.8),
+        life: 3 + Math.random() * 4,
+        delay: Math.random() * 0.4,
+        alpha: 0.18 + Math.random() * 0.16,
+        drag: 0.55,
+        buoyancy: 3,
+        color: onLand ? 0x9a8d76 : 0xd5e6e9
+      });
+    }
+  }
+
   function planDamage(x, z, fx) {
     const events = [];
     const maxR = Math.max(fx.r5, fx.thermal, 1);
@@ -3509,7 +3930,8 @@
       const d = Math.sqrt(dx * dx + dz * dz);
       const edge = Math.max(0, d - Math.hypot(rec.w, rec.d) * 0.3);
       let type = null;
-      if (edge <= fx.r20) type = edge < fx.r20 * 0.52 ? 'vaporize' : 'destroy';
+      if (fx.crater && edge <= fx.crater * 1.1) type = 'vaporize';
+      else if (edge <= fx.r20) type = edge < fx.r20 * 0.52 ? 'vaporize' : 'destroy';
       else if (edge <= fx.r5) type = 'collapse';
       else if (edge <= fx.thermal) type = 'fire';
       if (!type) continue;
@@ -3530,7 +3952,8 @@
       const d = Math.sqrt(dx * dx + dz * dz);
       const edge = Math.max(0, d - lm.radius * 0.55);
       let type = null;
-      if (edge <= fx.r20) type = edge < fx.r20 * 0.46 ? 'vaporize' : 'destroy';
+      if (fx.crater && edge <= fx.crater * 1.1) type = 'vaporize';
+      else if (edge <= fx.r20) type = edge < fx.r20 * 0.46 ? 'vaporize' : 'destroy';
       else if (edge <= fx.r5) type = 'collapse';
       else if (edge <= fx.thermal) type = 'fire';
       if (!type) continue;
@@ -3568,7 +3991,8 @@
       if (rec.mesh.instanceColor) rec.mesh.instanceColor.needsUpdate = true;
       if (event.type === 'destroy' || rng < 0.36) {
         spawnDebrisBurst(rec, blast, event.type === 'vaporize' ? 0.72 : 1.12);
-        addRubble(rec, 0.72 + Math.random() * 0.55);
+        // Nothing survives as rubble on the crater floor.
+        if (!fx.crater || event.distance > fx.crater * 1.1) addRubble(rec, 0.72 + Math.random() * 0.55);
       }
       if (rng < 0.3) spawnDustCloud(rec.x, rec.z, Math.max(20, rec.w * 0.55), LOW_POWER ? 2 : 4, rec.h * 0.35);
       if (rng < 0.45) addBuildingFire(rec.x, rec.z, Math.min(rec.h * 0.65, 140), 1.1);
@@ -3927,6 +4351,14 @@
     if (v.scorch) {
       v.scorch.material.opacity = 0.5 * clamp(t / 0.35, 0, 1);
     }
+
+    if (v.crater) {
+      const p = clamp(t / 0.4, 0, 1);
+      v.crater.group.scale.setScalar(Math.max(0.001, easeOutCubic(p)));
+      const heat = Math.max(0, 1 - t / 4.5);
+      v.crater.glow.material.opacity = 0.6 * heat;
+      v.crater.glow.visible = heat > 0.01;
+    }
   }
 
   function updateFireEmitters(dt) {
@@ -3976,6 +4408,7 @@
   let audioCtx = null;
   let masterGain = null;
   let fallAudio = null;
+  let sirenAudio = null;
 
   function ensureAudio() {
     if (!state.audioEnabled) return;
@@ -4002,13 +4435,38 @@
         try { fallAudio.stop(); } catch (e) {}
         fallAudio = null;
       }
+      stopSiren();
     } else {
       ensureAudio();
       if (masterGain) masterGain.gain.value = 0.58;
     }
   }
 
-  function playFallWhoosh(duration, kt) {
+  function preloadSiren() {
+    if (sirenAudio) return;
+    sirenAudio = new Audio('nuclear-alarm-siren.mp3');
+    sirenAudio.preload = 'auto';
+    sirenAudio.volume = 0.55;
+  }
+
+  function playSiren() {
+    if (!state.audioEnabled) return;
+    ensureAudio();
+    preloadSiren();
+    try { sirenAudio.currentTime = 0; } catch (e) {}
+    const started = sirenAudio.play();
+    if (started && started.catch) started.catch(() => {});
+  }
+
+  function stopSiren() {
+    if (!sirenAudio) return;
+    try {
+      sirenAudio.pause();
+      sirenAudio.currentTime = 0;
+    } catch (e) {}
+  }
+
+  function playFallWhoosh(duration, kt, meteor = false) {
     if (!state.audioEnabled) return;
     ensureAudio();
     if (!audioCtx || !masterGain) return;
@@ -4017,11 +4475,11 @@
     const gain = audioCtx.createGain();
     const filter = audioCtx.createBiquadFilter();
     osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(820 + Math.log10(kt + 2) * 120, now);
-    osc.frequency.exponentialRampToValueAtTime(120, now + duration);
+    osc.frequency.setValueAtTime(meteor ? 1500 + Math.log10(kt + 2) * 220 : 820 + Math.log10(kt + 2) * 120, now);
+    osc.frequency.exponentialRampToValueAtTime(meteor ? 70 : 120, now + duration);
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1200, now);
-    filter.frequency.exponentialRampToValueAtTime(260, now + duration);
+    filter.frequency.setValueAtTime(meteor ? 2200 : 1200, now);
+    filter.frequency.exponentialRampToValueAtTime(meteor ? 220 : 260, now + duration);
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(0.035, now + 0.18);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
@@ -4033,12 +4491,12 @@
     fallAudio = osc;
   }
 
-  function playExplosion(kt) {
+  function playExplosion(kt, meteor = false) {
     if (!state.audioEnabled) return;
     ensureAudio();
     if (!audioCtx || !masterGain) return;
     const now = audioCtx.currentTime;
-    const duration = 3.8;
+    const duration = meteor ? 5.4 : 3.8;
     const bufferSize = Math.floor(audioCtx.sampleRate * duration);
     const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -4054,8 +4512,8 @@
     src.buffer = buffer;
     const lp = audioCtx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(1400, now);
-    lp.frequency.exponentialRampToValueAtTime(180, now + 2.6);
+    lp.frequency.setValueAtTime(meteor ? 900 : 1400, now);
+    lp.frequency.exponentialRampToValueAtTime(meteor ? 90 : 180, now + (meteor ? 3.6 : 2.6));
     const gain = audioCtx.createGain();
     const level = clamp(0.28 + Math.log10(kt + 1) * 0.04, 0.3, 0.48);
     gain.gain.setValueAtTime(0.0001, now);
@@ -4069,15 +4527,15 @@
     const sub = audioCtx.createOscillator();
     const subGain = audioCtx.createGain();
     sub.type = 'sine';
-    sub.frequency.setValueAtTime(58, now);
-    sub.frequency.exponentialRampToValueAtTime(31, now + 2.2);
+    sub.frequency.setValueAtTime(meteor ? 44 : 58, now);
+    sub.frequency.exponentialRampToValueAtTime(meteor ? 24 : 31, now + 2.2);
     subGain.gain.setValueAtTime(0.0001, now);
     subGain.gain.exponentialRampToValueAtTime(0.22, now + 0.05);
-    subGain.gain.exponentialRampToValueAtTime(0.0001, now + 3.2);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, now + (meteor ? 4.6 : 3.2));
     sub.connect(subGain);
     subGain.connect(masterGain);
     sub.start(now);
-    sub.stop(now + 3.3);
+    sub.stop(now + (meteor ? 4.7 : 3.3));
 
     const click = audioCtx.createOscillator();
     const clickGain = audioCtx.createGain();
@@ -4226,7 +4684,7 @@
         if (moved < 8 && elapsedMs < 720 && p.button !== 2) {
           const hit = screenToGround(e.clientX, e.clientY);
           if (hit && (state.phase === 'idle' || state.phase === 'aftermath')) {
-            launchAt(hit.x, hit.z, inAnyLand(hit.x, hit.z));
+            armStrike(hit.x, hit.z, inAnyLand(hit.x, hit.z));
           }
         }
       }
@@ -4265,21 +4723,53 @@
   // ---------------------------------------------------------------------------
   // UI state
   // ---------------------------------------------------------------------------
-  function populateNukeSelect() {
-    dom.select.innerHTML = '';
-    for (const nuke of NUKES) {
-      const option = document.createElement('option');
-      option.value = nuke.id;
-      option.textContent = `${nuke.name} — ${nuke.label}`;
-      dom.select.appendChild(option);
-    }
-    dom.select.value = selectedNuke.id;
+  function populateWeaponSelects() {
+    const fill = (el, list, activeId) => {
+      el.innerHTML = '';
+      for (const weapon of list) {
+        const option = document.createElement('option');
+        option.value = weapon.id;
+        option.textContent = `${weapon.name} — ${weapon.label}`;
+        el.appendChild(option);
+      }
+      el.value = activeId;
+    };
+    fill(dom.select, NUKES, modeWeapons.nuke.id);
+    fill(dom.meteorSelect, METEORS, modeWeapons.meteor.id);
   }
 
   function updateWeaponUI() {
-    selectedEffects = effectsFor(selectedNuke.yieldKt);
-    dom.yieldBadge.textContent = fmtYield(selectedNuke.yieldKt);
-    dom.weaponMeta.textContent = `OPTIMAL AIRBURST · ${Math.round(selectedEffects.hob).toLocaleString('en-US')} M`;
+    selectedEffects = effectsForWeapon(selectedWeapon);
+    dom.yieldBadge.textContent = fmtYield(selectedWeapon.yieldKt);
+    if (isMeteor(selectedWeapon)) {
+      dom.weaponMeta.textContent = `GROUND IMPACT · CRATER Ø ${fmtCrater(selectedEffects.crater)}`;
+      dom.weaponLabel.textContent = 'IMPACTOR';
+    } else {
+      dom.weaponMeta.textContent = `OPTIMAL AIRBURST · ${Math.round(selectedEffects.hob).toLocaleString('en-US')} M`;
+      dom.weaponLabel.textContent = 'WARHEAD';
+    }
+    const meteorMode = mode === 'meteor';
+    dom.select.hidden = meteorMode;
+    dom.meteorSelect.hidden = !meteorMode;
+    dom.select.value = modeWeapons.nuke.id;
+    dom.meteorSelect.value = modeWeapons.meteor.id;
+    dom.modeNuke.setAttribute('aria-pressed', String(!meteorMode));
+    dom.modeMeteor.setAttribute('aria-pressed', String(meteorMode));
+  }
+
+  function setMode(next) {
+    if (next === mode) return;
+    if (state.phase === 'falling' || state.phase === 'blast' || state.phase === 'alert') return;
+    mode = next;
+    selectedWeapon = modeWeapons[mode];
+    updateWeaponUI();
+    if (state.phase === 'idle' || state.phase === 'aftermath') {
+      setStatus(
+        'READY TO STRIKE',
+        isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city',
+        'ready'
+      );
+    }
   }
 
   function setStatus(label, detail, phase) {
@@ -4288,12 +4778,23 @@
     dom.status.dataset.state = phase;
   }
 
+  function reportLocationLine(weapon, fx) {
+    const bridges = state.bridgesDamaged
+      ? ` · ${state.bridgesDamaged} BRIDGE${state.bridgesDamaged > 1 ? 'S' : ''}`
+      : '';
+    if (isMeteor(weapon)) {
+      const crater = state.targetOnLand ? `GROUND IMPACT · CRATER Ø ${fmtCrater(fx.crater)}` : 'WATER IMPACT · NO CRATER';
+      return crater + bridges;
+    }
+    return `AIRBURST AT ${Math.round(fx.hob).toLocaleString('en-US')} M${bridges}`;
+  }
+
   function showReport() {
-    const n = state.nuke;
+    const n = state.weapon;
     const fx = state.effects;
     dom.reportNuke.textContent = n.name;
     dom.reportYield.textContent = fmtYield(n.yieldKt);
-    dom.reportHob.textContent = `AIRBURST AT ${Math.round(fx.hob).toLocaleString('en-US')} M`;
+    dom.reportHob.textContent = reportLocationLine(n, fx);
     dom.legend20.textContent = fmtKm(fx.r20).toUpperCase();
     dom.legend5.textContent = fmtKm(fx.r5).toUpperCase();
     dom.legendThermal.textContent = fmtKm(fx.thermal).toUpperCase();
@@ -4317,7 +4818,7 @@
       if (state.phase === 'aftermath') {
         dom.statusDetail.textContent = aftermathSummary();
       }
-      dom.reportHob.textContent = `AIRBURST AT ${Math.round(state.effects.hob).toLocaleString('en-US')} M${state.bridgesDamaged ? ` · ${state.bridgesDamaged} BRIDGE${state.bridgesDamaged > 1 ? 'S' : ''}` : ''}`;
+      dom.reportHob.textContent = reportLocationLine(state.weapon, state.effects);
     }
   }
 
@@ -4328,9 +4829,13 @@
 
   function setInputEnabled(enabled) {
     dom.select.disabled = !enabled;
+    dom.meteorSelect.disabled = !enabled;
+    dom.modeNuke.disabled = !enabled;
+    dom.modeMeteor.disabled = !enabled;
   }
 
   function resetInterface(initial = false) {
+    cancelAlert();
     state.phase = 'idle';
     state.target = null;
     state.destroyed = 0;
@@ -4346,12 +4851,12 @@
     state.reportStart = 0;
     cameraRig.shake = 0;
     document.body.dataset.phase = 'idle';
-    dom.select.disabled = false;
+    setInputEnabled(true);
     dom.report.hidden = true;
     dom.altimeter.hidden = true;
     dom.flash.classList.remove('fire');
     dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click the city to strike';
-    setStatus('READY TO STRIKE', 'Choose a spot on the city', 'ready');
+    setStatus('READY TO STRIKE', isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city', 'ready');
     updateWeaponUI();
     if (!initial) {
       state.statsDirty = true;
@@ -4362,12 +4867,29 @@
     dom.select.addEventListener('change', () => {
       const found = NUKES.find((n) => n.id === dom.select.value);
       if (!found) return;
-      selectedNuke = found;
+      modeWeapons.nuke = found;
+      if (mode !== 'nuke') return;
+      selectedWeapon = found;
       updateWeaponUI();
       if (state.phase === 'idle') {
         setStatus('READY TO STRIKE', 'Choose a spot on the city', 'ready');
       }
     });
+
+    dom.meteorSelect.addEventListener('change', () => {
+      const found = METEORS.find((m) => m.id === dom.meteorSelect.value);
+      if (!found) return;
+      modeWeapons.meteor = found;
+      if (mode !== 'meteor') return;
+      selectedWeapon = found;
+      updateWeaponUI();
+      if (state.phase === 'idle') {
+        setStatus('READY TO STRIKE', 'Pick an impact point', 'ready');
+      }
+    });
+
+    dom.modeNuke.addEventListener('click', () => setMode('nuke'));
+    dom.modeMeteor.addEventListener('click', () => setMode('meteor'));
 
     dom.soundBtn.addEventListener('click', () => {
       setAudioEnabled(!state.audioEnabled);
@@ -4402,9 +4924,9 @@
     if (state.phase === 'blast' && elapsed - state.blastStart > 2.7) {
       state.phase = 'aftermath';
       document.body.dataset.phase = 'aftermath';
-      dom.select.disabled = false;
+      setInputEnabled(true);
       dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click again for another strike';
-      setStatus('BLAST COMPLETE', aftermathSummary(), 'aftermath');
+      setStatus(isMeteor(state.weapon) ? 'IMPACT COMPLETE' : 'BLAST COMPLETE', aftermathSummary(), 'aftermath');
     }
     if (state.phase === 'aftermath') {
       dom.statusDetail.textContent = aftermathSummary();
@@ -4438,6 +4960,10 @@
     if (cameraRig.shake < 0.002) cameraRig.shake = 0;
     updateCameraTween();
     applyCamera();
+
+    if (state.phase === 'alert') {
+      updateAlert();
+    }
 
     if (state.phase === 'falling') {
       updateBombFall();
@@ -4473,8 +4999,9 @@
 
       initThree();
       initMaterials();
-      populateNukeSelect();
+      populateWeaponSelects();
       initEffectTextures();
+      preloadSiren();
       makeTerrain();
       buildCity();
       bindUI();
@@ -4504,14 +5031,32 @@
     get time() { return elapsed; },
     cameraRig,
     launchAt,
+    armStrike,
     resetGame,
     effectsFor,
-    get selectedNuke() { return selectedNuke; },
+    effectsForImpact,
+    makeCraterTexture,
+    get mode() { return mode; },
+    setMode,
+    NUKES,
+    METEORS,
+    get selectedWeapon() { return selectedWeapon; },
     selectNuke(id) {
       const nuke = NUKES.find((n) => n.id === id);
       if (!nuke) return;
-      selectedNuke = nuke;
+      modeWeapons.nuke = nuke;
+      if (mode !== 'nuke') return;
+      selectedWeapon = nuke;
       dom.select.value = id;
+      updateWeaponUI();
+    },
+    selectMeteor(id) {
+      const meteor = METEORS.find((m) => m.id === id);
+      if (!meteor) return;
+      modeWeapons.meteor = meteor;
+      if (mode !== 'meteor') return;
+      selectedWeapon = meteor;
+      dom.meteorSelect.value = id;
       updateWeaponUI();
     },
     get mapCanvas() { return mapCanvas; },
