@@ -125,7 +125,7 @@
   // ---------------------------------------------------------------------------
   // World layout, in metres. x = east, z = north.
   // ---------------------------------------------------------------------------
-  const WORLD = { x0: -5200, x1: 5600, z0: -1600, z1: 14400 };
+  const WORLD = { x0: -6400, x1: 7000, z0: -2800, z1: 15200 };
   const GRID_ANGLE = deg(18);
   const A = new THREE.Vector2(Math.sin(GRID_ANGLE), Math.cos(GRID_ANGLE)); // along avenues, north
   const B = new THREE.Vector2(Math.cos(GRID_ANGLE), -Math.sin(GRID_ANGLE)); // across avenues, east
@@ -152,17 +152,30 @@
   ];
 
   const BROOKLYN_QUEENS = [
-    [1180, -1600], [1260, -900], [1350, -200], [1410, 500], [1490, 1200],
+    [1180, -2800], [1240, -1900], [1260, -900], [1350, -200], [1410, 500], [1490, 1200],
     [1600, 2000], [1730, 2800], [1880, 3700], [2010, 4600], [2140, 5500],
     [2260, 6500], [2400, 7500], [2560, 8500], [2750, 9500], [2980, 10500],
-    [3250, 11400], [3540, 12200], [3900, 12900], [5600, 13200], [5600, -1600]
+    [3250, 11400], [3540, 12200], [3900, 12900], [4300, 13500], [4700, 14000],
+    [5200, 14350], [5900, 14520], [6600, 14500], [7000, 14400], [7000, -2800]
   ];
 
   const JERSEY = [
-    [-2380, -1600], [-2460, -700], [-2520, 100], [-2580, 900], [-2640, 1700],
+    [-2380, -2800], [-2440, -1900], [-2460, -700], [-2520, 100], [-2580, 900], [-2640, 1700],
     [-2710, 2500], [-2760, 3300], [-2810, 4200], [-2870, 5100], [-2920, 6000],
     [-2970, 6900], [-3020, 7800], [-3070, 8700], [-3130, 9600], [-3200, 10500],
-    [-3280, 11400], [-3380, 12300], [-3500, 13200], [-5200, 13800], [-5200, -1600]
+    [-3280, 11400], [-3380, 12300], [-3500, 13200], [-4200, 14300], [-5000, 14900],
+    [-5800, 15100], [-6400, 15000], [-6400, -2800]
+  ];
+
+  const BRONX = [
+    [-800, 14400], [-600, 14900], [-200, 15150], [400, 15200], [1200, 15150],
+    [2000, 15000], [2800, 14800], [3100, 14400], [2900, 14000], [2400, 13850],
+    [1700, 13850], [1100, 14050], [500, 14200], [0, 14250], [-500, 14300]
+  ];
+
+  const STATEN_ISLAND = [
+    [-2100, -1500], [-2000, -1950], [-1650, -2350], [-1150, -2650], [-600, -2700],
+    [-150, -2450], [-20, -2050], [-180, -1650], [-700, -1400], [-1400, -1370]
   ];
 
   const ROOSEVELT = [
@@ -189,6 +202,8 @@
     { id: 'manhattan', points: MANHATTAN, color: '#60615c' },
     { id: 'brooklyn', points: BROOKLYN_QUEENS, color: '#5a5c57' },
     { id: 'jersey', points: JERSEY, color: '#5c5e58' },
+    { id: 'bronx', points: BRONX, color: '#5b5d57' },
+    { id: 'staten', points: STATEN_ISLAND, color: '#5d6156' },
     { id: 'roosevelt', points: ROOSEVELT, color: '#5d5f58' },
     { id: 'governors', points: GOVERNORS, color: '#586152' },
     { id: 'liberty', points: LIBERTY, color: '#5a6157' },
@@ -248,7 +263,14 @@
     { id: 'fortgreene', name: 'Fort Greene Park', poly: localRect(2690, 3350, 170, 190), trees: 34, park: true },
     { id: 'mccarren', name: 'McCarren Park', poly: localRect(3100, 5500, 210, 150), trees: 32, park: true },
     { id: 'libertystate', name: 'Liberty State Park', poly: localRect(-3350, 1000, 500, 520), trees: 92, park: true },
-    { id: 'hoboken', name: 'Pier A Park', poly: localRect(-2890, 4200, 100, 235), trees: 26, park: true }
+    { id: 'hoboken', name: 'Pier A Park', poly: localRect(-2890, 4200, 100, 235), trees: 26, park: true },
+    // Woodland ringing the city, on the land added beyond the old shoreline.
+    { id: 'jamaica', name: 'Jamaica Bay Greenbelt', poly: localRect(4300, -1150, 950, 620), trees: LOW_POWER ? 120 : 240, park: true },
+    { id: 'kissena', name: 'Kissena Woods', poly: localRect(5850, 9600, 560, 820), trees: LOW_POWER ? 95 : 185, park: true },
+    { id: 'cunningham', name: 'Cunningham Park', poly: localRect(5250, 13300, 720, 380), trees: LOW_POWER ? 80 : 155, park: true },
+    { id: 'vancortlandt', name: 'Van Cortlandt Park', poly: localRect(1450, 14650, 1050, 330), trees: LOW_POWER ? 110 : 215, park: true },
+    { id: 'palisades', name: 'The Palisades', poly: localRect(-5150, 10800, 480, 1250), trees: LOW_POWER ? 115 : 225, park: true },
+    { id: 'greenbelt', name: 'Staten Island Greenbelt', poly: localRect(-1150, -2050, 620, 420), trees: LOW_POWER ? 105 : 205, park: true }
   ];
 
   const STREET_GRID = { avenue: 220, street: 80 };
@@ -415,6 +437,8 @@
     water = makeWater();
     scene.add(water);
 
+    createClouds();
+
     effectsRoot = new THREE.Group();
     effectsRoot.name = 'effects';
     scene.add(effectsRoot);
@@ -519,6 +543,103 @@
     return mesh;
   }
 
+  // ---------------------------------------------------------------------------
+  // Sparse cloud layer, sitting at typical cumulus altitude
+  // ---------------------------------------------------------------------------
+  let cloudGroup = null;
+  const cloudPuffs = [];
+
+  function makeCloudTexture() {
+    const size = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const rng = mulberry32(3311);
+    if (ctx.filter !== undefined) ctx.filter = `blur(${Math.round(size * 0.055)}px)`;
+    // Few, wide, overlapping lobes so the puff reads as one soft mass at any
+    // distance rather than a scatter of separate dots.
+    for (let i = 0; i < 9; i++) {
+      const a = rng() * TAU;
+      const d = Math.pow(rng(), 0.55) * size * 0.19;
+      const x = size / 2 + Math.cos(a) * d;
+      const y = size / 2 + Math.sin(a) * d * 0.55;
+      const r = size * (0.24 + rng() * 0.16);
+      const alpha = 0.2 + rng() * 0.16;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(255,255,255,${alpha.toFixed(3)})`);
+      g.addColorStop(0.45, `rgba(250,253,255,${(alpha * 0.72).toFixed(3)})`);
+      g.addColorStop(0.78, `rgba(240,246,251,${(alpha * 0.3).toFixed(3)})`);
+      g.addColorStop(1, 'rgba(238,245,250,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.filter = 'none';
+    // Fade the rim so individual sprites never show their square bounds.
+    ctx.globalCompositeOperation = 'destination-in';
+    const mask = ctx.createRadialGradient(size / 2, size / 2, size * 0.08, size / 2, size / 2, size * 0.5);
+    mask.addColorStop(0, 'rgba(0,0,0,1)');
+    mask.addColorStop(0.52, 'rgba(0,0,0,0.88)');
+    mask.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = mask;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  function createClouds() {
+    const rng = mulberry32(60613);
+    const tex = makeCloudTexture();
+    cloudGroup = new THREE.Group();
+    cloudGroup.name = 'clouds';
+    scene.add(cloudGroup);
+
+    const tints = [0xffffff, 0xf4f8fd, 0xe4ecf5, 0xfff2df, 0xeff3f2];
+    const clusters = LOW_POWER ? 12 : 22;
+    for (let i = 0; i < clusters; i++) {
+      // Far out and high, so the layer reads as horizon cloud rather than
+      // something floating over (and speckling) the city below.
+      const ang = rng() * TAU;
+      const dist = 10500 + Math.pow(rng(), 0.8) * 9500;
+      const cx = 200 + Math.cos(ang) * dist;
+      const cz = 6200 + Math.sin(ang) * dist;
+      const cy = 1750 + rng() * 1150;
+      const tint = tints[Math.floor(rng() * tints.length)];
+      const base = 0.42 + rng() * 0.22;
+      const drift = 5 + rng() * 9;
+      const puffs = 6 + Math.floor(rng() * 5);
+      const spread = 900 + rng() * 1600;
+      for (let p = 0; p < puffs; p++) {
+        const mat = new THREE.SpriteMaterial({
+          map: tex, color: tint, transparent: true,
+          opacity: base * (0.55 + rng() * 0.7),
+          depthWrite: false, fog: true
+        });
+        const sprite = new THREE.Sprite(mat);
+        const w = 2100 + rng() * 2600;
+        sprite.scale.set(w, w * (0.42 + rng() * 0.22), 1);
+        sprite.position.set(
+          cx + (rng() - 0.5) * spread * 1.4,
+          cy + (rng() - 0.5) * 320,
+          cz + (rng() - 0.5) * spread
+        );
+        cloudGroup.add(sprite);
+        cloudPuffs.push({ sprite, drift });
+      }
+    }
+  }
+
+  function updateClouds(dt) {
+    if (!cloudPuffs.length) return;
+    for (const c of cloudPuffs) {
+      const s = c.sprite;
+      s.position.x += c.drift * dt;
+      if (s.position.x > 13500) s.position.x -= 27000;
+    }
+  }
+
   function applyCamera() {
     const cp = Math.cos(cameraRig.pitch);
     const sp = Math.sin(cameraRig.pitch);
@@ -561,14 +682,15 @@
   // Ground map: coasts, streets, parks, piers and plazas drawn to one texture.
   // ---------------------------------------------------------------------------
   function makeGroundTexture() {
-    const W = LOW_POWER ? 1536 : 2700;
-    const H = LOW_POWER ? 2276 : 4000;
+    const spanX = WORLD.x1 - WORLD.x0;
+    const spanZ = WORLD.z1 - WORLD.z0;
+    const pxPerM = LOW_POWER ? 0.13 : 0.215;
+    const W = Math.round(spanX * pxPerM);
+    const H = Math.round(spanZ * pxPerM);
     const canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
     const ctx = canvas.getContext('2d');
-    const spanX = WORLD.x1 - WORLD.x0;
-    const spanZ = WORLD.z1 - WORLD.z0;
     const sx = W / spanX;
     const sz = H / spanZ;
     const px = (x) => (x - WORLD.x0) * sx;
@@ -628,6 +750,16 @@
     drawManhattanStreets(ctx, px, py, scale, landPaths.manhattan);
     drawBrooklynStreets(ctx, px, py, scale, landPaths.brooklyn);
     drawJerseyStreets(ctx, px, py, scale, landPaths.jersey);
+    drawBoroughStreets(ctx, px, py, scale, landPaths.bronx, {
+      x0: -900, x1: 3100, z0: 13800, z1: 15300,
+      stepX: 175, stepZ: 150, skewX: 260, skewZ: 130,
+      road: [[-600, 14000], [400, 14300], [1500, 14700], [2700, 15000]]
+    });
+    drawBoroughStreets(ctx, px, py, scale, landPaths.staten, {
+      x0: -2200, x1: 100, z0: -2800, z1: -1300,
+      stepX: 190, stepZ: 155, skewX: -180, skewZ: 150,
+      road: [[-2000, -1600], [-1200, -2000], [-300, -2400]]
+    });
     drawRooseveltStreets(ctx, px, py, scale, landPaths.roosevelt);
     drawParks(ctx, px, py, scale);
     drawLandmarkPlazas(ctx, px, py, scale);
@@ -759,14 +891,14 @@
 
     ctx.strokeStyle = 'rgba(37, 42, 42, 0.54)';
     ctx.lineWidth = Math.max(0.75, 1.1 * scale);
-    for (let x = 1400; x < 5500; x += 170) {
+    for (let x = 1400; x < 6900; x += 170) {
       ctx.beginPath();
-      lineWorld(ctx, x, -800, x + 500, 12800, px, py);
+      lineWorld(ctx, x, -2600, x + 500, 14400, px, py);
       ctx.stroke();
     }
-    for (let z = 400; z < 12700; z += 150) {
+    for (let z = -2600; z < 14400; z += 150) {
       ctx.beginPath();
-      lineWorld(ctx, 1200, z, 5550, z - 160, px, py);
+      lineWorld(ctx, 1200, z, 6900, z - 160, px, py);
       ctx.stroke();
     }
 
@@ -805,14 +937,14 @@
     ctx.clip(clipPath);
     ctx.strokeStyle = 'rgba(38, 42, 42, 0.52)';
     ctx.lineWidth = Math.max(0.7, 1.05 * scale);
-    for (let x = -5100; x < -2300; x += 180) {
+    for (let x = -6300; x < -2300; x += 180) {
       ctx.beginPath();
-      lineWorld(ctx, x, -500, x - 240, 12800, px, py);
+      lineWorld(ctx, x, -2700, x - 240, 14900, px, py);
       ctx.stroke();
     }
-    for (let z = -800; z < 12800; z += 145) {
+    for (let z = -2700; z < 14900; z += 145) {
       ctx.beginPath();
-      lineWorld(ctx, -5200, z, -2300, z + 120, px, py);
+      lineWorld(ctx, -6400, z, -2300, z + 120, px, py);
       ctx.stroke();
     }
     ctx.strokeStyle = 'rgba(60, 61, 55, 0.8)';
@@ -820,6 +952,29 @@
     const turnpike = [[-5060, -500], [-4600, 1800], [-4100, 4100], [-3650, 6500], [-3450, 9200], [-3380, 12800]];
     const p = new Path2D();
     addPolyLine(ctx, p, px, py, turnpike);
+    ctx.stroke(p);
+    ctx.restore();
+  }
+
+  function drawBoroughStreets(ctx, px, py, scale, clipPath, grid) {
+    ctx.save();
+    ctx.clip(clipPath);
+    ctx.strokeStyle = 'rgba(40, 44, 43, 0.5)';
+    ctx.lineWidth = Math.max(0.7, 1.05 * scale);
+    for (let x = grid.x0; x <= grid.x1; x += grid.stepX) {
+      ctx.beginPath();
+      lineWorld(ctx, x, grid.z0, x + grid.skewX, grid.z1, px, py);
+      ctx.stroke();
+    }
+    for (let z = grid.z0; z <= grid.z1; z += grid.stepZ) {
+      ctx.beginPath();
+      lineWorld(ctx, grid.x0, z, grid.x1, z + grid.skewZ, px, py);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(54, 56, 51, 0.78)';
+    ctx.lineWidth = Math.max(1.5, 2.6 * scale);
+    const p = new Path2D();
+    addPolyLine(ctx, p, px, py, grid.road);
     ctx.stroke(p);
     ctx.restore();
   }
@@ -1357,19 +1512,30 @@
   function generateOuterBoroughs(rng) {
     const zones = [
       {
-        name: 'brooklyn', poly: BROOKLYN_QUEENS, x0: 1250, x1: 5350, z0: -400, z1: 9050,
+        name: 'brooklyn', poly: BROOKLYN_QUEENS, x0: 1250, x1: 6750, z0: -2500, z1: 9050,
         step: 150, rowStep: 74, density: 0.78, rot: -0.085, baseH: [11, 38],
-        clusters: [[2340, 2620, 700, 122], [2670, 3330, 520, 42], [1860, 2080, 400, 20]]
+        clusters: [[2340, 2620, 700, 122], [2670, 3330, 520, 42], [1860, 2080, 400, 20],
+          [3900, -1200, 900, 26], [4900, -600, 700, 22]]
       },
       {
-        name: 'queens', poly: BROOKLYN_QUEENS, x0: 2300, x1: 5500, z0: 8800, z1: 12700,
-        step: 158, rowStep: 82, density: 0.64, rot: 0.02, baseH: [9, 24],
-        clusters: [[3300, 10300, 900, 34]]
+        name: 'queens', poly: BROOKLYN_QUEENS, x0: 2300, x1: 6750, z0: 8800, z1: 14300,
+        step: 158, rowStep: 82, density: 0.6, rot: 0.02, baseH: [9, 24],
+        clusters: [[3300, 10300, 900, 34], [5600, 13000, 800, 28]]
       },
       {
-        name: 'jersey', poly: JERSEY, x0: -5150, x1: -2550, z0: -450, z1: 9800,
-        step: 152, rowStep: 78, density: 0.72, rot: 0.055, baseH: [12, 34],
-        clusters: [[-3000, 2850, 800, 128], [-2860, 4450, 540, 40]]
+        name: 'jersey', poly: JERSEY, x0: -6300, x1: -2550, z0: -2500, z1: 15000,
+        step: 152, rowStep: 78, density: 0.62, rot: 0.055, baseH: [12, 34],
+        clusters: [[-3000, 2850, 800, 128], [-2860, 4450, 540, 40], [-4600, 11500, 900, 30]]
+      },
+      {
+        name: 'bronx', poly: BRONX, x0: -700, x1: 3000, z0: 13850, z1: 15150,
+        step: 150, rowStep: 76, density: 0.55, rot: 0.04, baseH: [12, 34],
+        clusters: [[900, 14500, 800, 52]]
+      },
+      {
+        name: 'staten', poly: STATEN_ISLAND, x0: -2000, x1: -100, z0: -2600, z1: -1450,
+        step: 150, rowStep: 76, density: 0.5, rot: 0.03, baseH: [10, 26],
+        clusters: [[-1100, -2100, 600, 22]]
       }
     ];
 
@@ -2094,6 +2260,7 @@
         const x = lerp(b.x0, b.x1, rng());
         const z = lerp(b.z0, b.z1, rng());
         if (!pointInPoly(x, z, park.poly)) continue;
+        if (!inAnyLand(x, z)) continue;
         if (park.lakes) {
           let inLake = false;
           for (const [lx, lz, lw, lh] of park.lakes) {
@@ -3465,8 +3632,10 @@
     group.position.set(x, groundImpact ? Math.max(12, fx.fireball * 0.45) : fx.hob, z);
     effectsRoot.add(group);
 
-    const shell = createFireballMesh(1, 0xfffbe8, 0xffc95a, 0xff6120, 1);
+    const shell = createFireballMesh(1, 0xfffdf2, 0xffd76d, 0xff6a24, 1);
     shell.scale.setScalar(Math.max(1, fx.fireball * (groundImpact ? 0.16 : 0.2)));
+    // Draw the fireball over the smoke so the white core is never buried.
+    shell.renderOrder = 9;
     group.add(shell);
 
     const core = new THREE.Mesh(
@@ -3476,15 +3645,17 @@
         blending: THREE.AdditiveBlending, depthWrite: false
       })
     );
+    core.renderOrder = 9;
     group.add(core);
 
     const halo = new THREE.Mesh(
       new THREE.SphereGeometry(1.22, 26, 16),
       new THREE.MeshBasicMaterial({
-        color: 0xff8b35, transparent: true, opacity: 0.32,
+        color: 0xff9440, transparent: true, opacity: 0.32,
         blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide
       })
     );
+    halo.renderOrder = 9;
     group.add(halo);
 
     const glowMat = new THREE.SpriteMaterial({
@@ -3492,6 +3663,7 @@
       blending: THREE.AdditiveBlending, depthWrite: false
     });
     const glow = new THREE.Sprite(glowMat);
+    glow.renderOrder = 9;
     group.add(glow);
 
     const light = new THREE.PointLight(0xffb15a, 0, 0, 0);
@@ -3680,7 +3852,8 @@
     for (let i = 0; i < capCount; i++) {
       const a = Math.random() * TAU;
       const spread = fireSize * (isMassive ? 0.15 + Math.random() * 0.85 : 0.25 + Math.random() * 2.5);
-      const delay = 0.05 + Math.random() * 2.4;
+      // Held back briefly so the fireball is unobstructed while it grows.
+      const delay = 0.75 + Math.random() * 2.2;
       plume.spawn({
         x: x + Math.cos(a) * spread * 0.42,
         y: fx.hob + (Math.random() - 0.15) * fireSize * 0.9,
@@ -3713,7 +3886,7 @@
         size0: 25 + Math.random() * 60,
         size1: 90 + Math.random() * Math.max(140, capSize * 0.7),
         life: (isMassive ? 14 : 9) + Math.random() * 9,
-        delay: 0.25 + Math.random() * 3.4,
+        delay: 0.6 + Math.random() * 3.2,
         alpha: (0.1 + Math.random() * 0.12) * alphaScale,
         drag: 0.22,
         buoyancy: (42 + Math.random() * 38) * riseScale,
@@ -4291,32 +4464,33 @@
     const fx = v.fx;
     const fireR = v.fireballRadius;
 
-    // Fireball: rapid initial growth, then a slow luminous expansion.
-    const grow = 1 - Math.exp(-t * 10);
-    const fireScale = Math.max(0.5, fireR * (0.26 + 0.86 * grow));
+    // Fireball: grows more slowly so the white core reads as a fireball
+    // instead of a one-frame flash, then holds before it cools off.
+    const grow = 1 - Math.exp(-t * 4.2);
+    const fireScale = Math.max(0.5, fireR * (0.22 + 0.96 * grow));
     v.shell.scale.setScalar(fireScale);
     v.shell.material.uniforms.uTime.value = t;
-    const shellFade = clamp(1 - (t - 0.24) / 1.4, 0, 1);
+    const shellFade = clamp(1 - (t - 1.15) / 2.2, 0, 1);
     v.shell.material.uniforms.uOpacity.value = 0.98 * shellFade;
     v.shell.visible = shellFade > 0.01;
 
-    const coreGrow = 1 - Math.exp(-t * 13);
-    v.core.scale.setScalar(Math.max(0.5, fireR * 0.8 * coreGrow));
-    const coreFade = clamp(1 - (t - 0.14) / 0.8, 0, 1);
-    v.core.material.opacity = 0.98 * coreFade;
+    const coreGrow = 1 - Math.exp(-t * 5.4);
+    v.core.scale.setScalar(Math.max(0.5, fireR * 0.94 * coreGrow));
+    const coreFade = clamp(1 - (t - 0.85) / 1.5, 0, 1);
+    v.core.material.opacity = 0.9 * coreFade;
     v.core.visible = coreFade > 0.01;
 
-    v.halo.scale.setScalar(Math.max(0.5, fireR * (0.3 + 1.02 * grow)));
-    const haloFade = clamp(1 - (t - 0.22) / 1.9, 0, 1);
-    v.halo.material.opacity = 0.34 * haloFade;
+    v.halo.scale.setScalar(Math.max(0.5, fireR * (0.3 + 1.14 * grow)));
+    const haloFade = clamp(1 - (t - 1.2) / 2.5, 0, 1);
+    v.halo.material.opacity = 0.4 * haloFade;
     v.halo.visible = haloFade > 0.01;
 
-    v.glow.scale.setScalar(Math.max(1, fireR * (1.6 + 1.8 * grow)));
-    const glowFade = clamp(1 - (t - 0.1) / 2.4, 0, 1);
-    v.glowMat.opacity = 0.62 * glowFade;
+    v.glow.scale.setScalar(Math.max(1, fireR * (1.6 + 1.9 * grow)));
+    const glowFade = clamp(1 - (t - 0.9) / 3.2, 0, 1);
+    v.glowMat.opacity = 0.68 * glowFade;
     v.glow.visible = glowFade > 0.01;
 
-    v.light.intensity = 26 * Math.exp(-t * 5.0);
+    v.light.intensity = 30 * Math.exp(-t * 2.6);
     v.light.distance = Math.max(1500, fx.r5 * 1.4);
     v.light.visible = v.light.intensity > 0.05;
 
@@ -4855,7 +5029,7 @@
     dom.report.hidden = true;
     dom.altimeter.hidden = true;
     dom.flash.classList.remove('fire');
-    dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click the city to strike';
+    dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click the city to strike · R to rebuild';
     setStatus('READY TO STRIKE', isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city', 'ready');
     updateWeaponUI();
     if (!initial) {
@@ -4925,7 +5099,7 @@
       state.phase = 'aftermath';
       document.body.dataset.phase = 'aftermath';
       setInputEnabled(true);
-      dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click again for another strike';
+      dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click again for another strike · R to rebuild';
       setStatus(isMeteor(state.weapon) ? 'IMPACT COMPLETE' : 'BLAST COMPLETE', aftermathSummary(), 'aftermath');
     }
     if (state.phase === 'aftermath') {
@@ -4956,6 +5130,7 @@
     frameDt = dt;
 
     if (waterUniforms) waterUniforms.uTime.value = elapsed;
+    updateClouds(dt);
     cameraRig.shake *= Math.exp(-dt * 2.55);
     if (cameraRig.shake < 0.002) cameraRig.shake = 0;
     updateCameraTween();
@@ -5036,6 +5211,7 @@
     effectsFor,
     effectsForImpact,
     makeCraterTexture,
+    makeCloudTexture,
     get mode() { return mode; },
     setMode,
     NUKES,
@@ -5060,6 +5236,8 @@
       updateWeaponUI();
     },
     get mapCanvas() { return mapCanvas; },
+    get trees() { return treeRecords; },
+    get clouds() { return cloudPuffs; },
     get renderer() { return renderer; },
     get scene() { return scene; },
     get camera() { return camera; },
