@@ -22,6 +22,8 @@
   // ---------------------------------------------------------------------------
   const NUKES = [
     { id: 'davy', name: 'Davy Crockett', yieldKt: 0.02, label: '0.02 kt', year: 1961 },
+    { id: 'w54', name: 'W54 SADM', yieldKt: 1, label: '1 kt', year: 1964 },
+    { id: 'w33', name: 'W33 Howitzer', yieldKt: 5, label: '5 kt', year: 1957 },
     { id: 'littleboy', name: 'Little Boy', yieldKt: 15, label: '15 kt', year: 1945 },
     { id: 'fatman', name: 'Fat Man', yieldKt: 21, label: '21 kt', year: 1945 },
     { id: 'w76', name: 'W76', yieldKt: 100, label: '100 kt', year: 1978 },
@@ -29,7 +31,8 @@
     { id: 'b83', name: 'B83', yieldKt: 1200, label: '1.2 Mt', year: 1983 },
     { id: 'ivymike', name: 'Ivy Mike', yieldKt: 10400, label: '10.4 Mt', year: 1952 },
     { id: 'castlebravo', name: 'Castle Bravo', yieldKt: 15000, label: '15 Mt', year: 1954 },
-    { id: 'tsar', name: 'Tsar Bomba', yieldKt: 50000, label: '50 Mt', year: 1961 }
+    { id: 'tsar', name: 'Tsar Bomba', yieldKt: 50000, label: '50 Mt', year: 1961 },
+    { id: 'samboy', name: 'Sam Boy', yieldKt: 1000000, label: '1 Gt' }
   ];
 
   function effectsFor(kt) {
@@ -48,6 +51,10 @@
   let selectedEffects = effectsFor(selectedNuke.yieldKt);
 
   function fmtYield(kt) {
+    if (kt >= 1000000) {
+      const gt = kt / 1000000;
+      return `${Number.isInteger(gt) ? gt.toFixed(0) : gt.toFixed(1)} Gt`;
+    }
     if (kt >= 1000) {
       const mt = kt / 1000;
       return `${Number.isInteger(mt) ? mt.toFixed(0) : mt.toFixed(1)} Mt`;
@@ -263,6 +270,7 @@
   // Renderer, scene, lights, camera
   // ---------------------------------------------------------------------------
   let renderer, scene, camera, sunLight, hemisphere, water, waterUniforms;
+  let skyMesh = null;
   let terrainMesh;
   let cityRoot = null;
   let effectsRoot = null;
@@ -286,7 +294,7 @@
     azimuth: 2.40,
     pitch: IS_SMALL ? 0.36 : 0.31,
     minDistance: 300,
-    maxDistance: 48000,
+    maxDistance: 120000,
     tween: null,
     shake: 0,
     shakeSeed: 0
@@ -323,8 +331,8 @@
 
     camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 8, 200000);
 
-    const sky = makeSky();
-    scene.add(sky);
+    skyMesh = makeSky();
+    scene.add(skyMesh);
 
     hemisphere = new THREE.HemisphereLight(0xbfd8e8, 0x5a5445, LOW_POWER ? 1.55 : 1.75);
     scene.add(hemisphere);
@@ -379,7 +387,7 @@
   }
 
   function makeSky() {
-    const geo = new THREE.SphereGeometry(90000, 32, 16);
+    const geo = new THREE.SphereGeometry(150000, 32, 16);
     const mat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -421,7 +429,7 @@
   }
 
   function makeWater() {
-    const geo = new THREE.PlaneGeometry(52000, 52000, 1, 1);
+    const geo = new THREE.PlaneGeometry(170000, 170000, 1, 1);
     const mat = new THREE.ShaderMaterial({
       transparent: false,
       depthWrite: true,
@@ -452,8 +460,8 @@
           float glint = pow(max(0.0, wave * 0.5 + 0.5), 22.0) * pow(fres, 1.1);
           color += uSun * glint * 0.2;
           float distanceToCam = length(cameraPosition - vWorld);
-          float haze = 1.0 - exp(-pow(distanceToCam * 0.000036, 1.8));
-          color = mix(color, vec3(0.71, 0.80, 0.84), haze * 0.8);
+          float haze = 1.0 - exp(-pow(distanceToCam * 0.000012, 1.8));
+          color = mix(color, vec3(0.55, 0.67, 0.74), haze * 0.72);
           gl_FragColor = vec4(color, 1.0);
         }
       `
@@ -475,8 +483,9 @@
       t.z + Math.cos(cameraRig.azimuth) * cp * cameraRig.distance
     );
     camera.lookAt(t.x, cameraRig.targetY, t.z);
+    if (skyMesh) skyMesh.position.copy(camera.position);
     if (scene.fog) {
-      scene.fog.density = 0.00004 * clamp(9000 / Math.max(2000, cameraRig.distance), 0.2, 1);
+      scene.fog.density = 0.00004 * clamp(9000 / Math.max(2000, cameraRig.distance), 0.08, 1);
     }
     if (cameraRig.shake > 0.001) {
       const s = cameraRig.shake * cameraRig.distance * 0.0018;
@@ -2884,11 +2893,11 @@
     dom.hintText.textContent = 'Airburst inbound — brace for shockwave';
     playFallWhoosh(bombFall.duration, nuke.yieldKt);
 
-    const distanceGoal = clamp(Math.max(fx.r5 * 4.0, 4200), 4200, 30000);
+    const distanceGoal = clamp(Math.max(fx.r5 * 4.0, 4200), 4200, 45000);
     beginCameraTween({
       tx: x,
       tz: z,
-      ty: fx.hob * 0.6,
+      ty: fx.hob * 0.75,
       distance: distanceGoal,
       azimuth: cameraRig.azimuth,
       pitch: IS_SMALL ? 0.42 : 0.36
@@ -3323,11 +3332,11 @@
     cameraRig.shake = clamp(0.55 + Math.log10(state.nuke.yieldKt + 1) * 0.26, 0.65, 1.6);
 
     const cloudRise = clamp(fx.hob * 1.9 + fx.fireball * 2.6, 700, 16000);
-    const blastDistance = clamp(Math.max(fx.r5 * 2.4, cloudRise * 2.0, 5200), 5200, 32000);
+    const blastDistance = clamp(Math.max(fx.r5 * 1.5, fx.fireball * 5.5, cloudRise * 2.2, 5200), 5200, 60000);
     beginCameraTween({
       tx: x,
       tz: z,
-      ty: cloudRise * 0.85,
+      ty: clamp((fx.hob + cloudRise) * 0.5, 200, 30000),
       distance: blastDistance,
       azimuth: cameraRig.azimuth - 0.1,
       pitch: IS_SMALL ? 0.28 : 0.24
@@ -3345,14 +3354,19 @@
     if (!smoke || !glow) return;
     const fireSize = Math.max(8, fx.fireball);
     const isMassive = fx.r5 > 6000;
-    const capSize = clamp(fireSize * 3.5, 55, 2600);
-    const alphaScale = clamp(450 / capSize, 0.12, 1);
-    const riseScale = clamp(Math.sqrt(fx.hob / 707), 0.75, 4.5);
+    const capSize = clamp(fireSize * 3.5, 55, 7000);
+    const alphaScale = clamp(450 / capSize, 0.14, 1);
+    const riseScale = clamp(Math.sqrt(fx.hob / 707), 0.75, 3.0);
+    const darkCloud = fx.r5 > 4000;
+    const capPalette = darkCloud
+      ? [0x9a8f7e, 0x7b7266, 0x5f574e]
+      : [0xe2d9c8, 0xbdb3a2, 0x968c7f];
+    const stemPalette = darkCloud ? [0x8b8172, 0xa79d8c] : [0xb0a695, 0xd0c6b3];
 
-    const capCount = LOW_POWER ? 150 : isMassive ? 560 : 270;
+    const capCount = LOW_POWER ? 150 : isMassive ? 900 : 270;
     for (let i = 0; i < capCount; i++) {
       const a = Math.random() * TAU;
-      const spread = fireSize * (0.25 + Math.random() * 2.5);
+      const spread = fireSize * (isMassive ? 0.15 + Math.random() * 0.85 : 0.25 + Math.random() * 2.5);
       const delay = 0.05 + Math.random() * 2.4;
       plume.spawn({
         x: x + Math.cos(a) * spread * 0.42,
@@ -3361,17 +3375,17 @@
         vx: Math.cos(a) * (45 + Math.random() * 190),
         vy: (30 + Math.random() * 140) * riseScale,
         vz: Math.sin(a) * (45 + Math.random() * 190),
-        size0: 45 + Math.random() * fireSize * 0.7,
+        size0: 45 + Math.random() * Math.min(fireSize * 0.7, 900),
         size1: capSize * (0.35 + Math.random() * 0.95),
-        life: (isMassive ? 16 : 10) + Math.random() * 9,
+        life: (isMassive ? 18 : 10) + Math.random() * 9,
         alpha: (0.12 + Math.random() * 0.13) * alphaScale,
         drag: 0.24,
         buoyancy: (34 + Math.random() * 42) * riseScale,
-        color: Math.random() > 0.68 ? 0xe2d9c8 : Math.random() > 0.38 ? 0xbdb3a2 : 0x968c7f
+        color: Math.random() > 0.68 ? capPalette[0] : Math.random() > 0.38 ? capPalette[1] : capPalette[2]
       });
     }
 
-    const stemCount = LOW_POWER ? 70 : isMassive ? 260 : 130;
+    const stemCount = LOW_POWER ? 70 : isMassive ? 400 : 130;
     for (let i = 0; i < stemCount; i++) {
       const y = Math.random() * fx.hob;
       const a = Math.random() * TAU;
@@ -3390,7 +3404,7 @@
         alpha: (0.1 + Math.random() * 0.12) * alphaScale,
         drag: 0.22,
         buoyancy: (42 + Math.random() * 38) * riseScale,
-        color: Math.random() > 0.5 ? 0xb0a695 : 0xd0c6b3
+        color: Math.random() > 0.5 ? stemPalette[0] : stemPalette[1]
       });
     }
 
@@ -4096,13 +4110,22 @@
     raycaster.setFromCamera(ndc, camera);
     const hit = new THREE.Vector3();
     if (!raycaster.ray.intersectPlane(groundPlane, hit)) return null;
-    if (hit.x < WORLD.x0 || hit.x > WORLD.x1 || hit.z < WORLD.z0 || hit.z > WORLD.z1) return null;
+    // Allow open-water strikes well outside the modelled city rectangle.
+    const dx = hit.x - 200;
+    const dz = hit.z - 6400;
+    if (dx * dx + dz * dz > 45000 * 45000) return null;
     return hit;
   }
 
   function clampTarget() {
-    cameraRig.target.x = clamp(cameraRig.target.x, WORLD.x0 + 200, WORLD.x1 - 200);
-    cameraRig.target.z = clamp(cameraRig.target.z, WORLD.z0 + 200, WORLD.z1 - 200);
+    const dx = cameraRig.target.x - 200;
+    const dz = cameraRig.target.z - 6400;
+    const d = Math.hypot(dx, dz);
+    if (d > 44000) {
+      const k = 44000 / d;
+      cameraRig.target.x = 200 + dx * k;
+      cameraRig.target.z = 6400 + dz * k;
+    }
   }
 
   function panCameraBy(dx, dy) {
@@ -4495,6 +4518,7 @@
     get renderer() { return renderer; },
     get scene() { return scene; },
     get camera() { return camera; },
+    inAnyLand,
     toggleShadows(on) { renderer.shadowMap.enabled = !!on; scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => m.needsUpdate = true); } }); },
     setTimeScale(value) { timeScale = clamp(value, 0.1, 20); },
     setCamera({ tx, ty, tz, distance, azimuth, pitch }) {
