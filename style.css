@@ -185,9 +185,12 @@ body {
 }
 
 .mode-switch {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 4px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: rgba(11, 18, 22, 0.56);
@@ -201,12 +204,12 @@ body {
   border-radius: 5px;
   background: transparent;
   color: var(--dim);
-  min-height: 28px;
+  min-height: 44px;
   padding: 0 11px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.12em;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
@@ -805,10 +808,10 @@ body[data-phase="aftermath"] #scene:active {
   }
 
   .mode-btn {
-    min-height: 27px;
+    min-height: 42px;
     padding: 0 8px;
-    font-size: 8px;
-    letter-spacing: 0.07em;
+    font-size: 11px;
+    letter-spacing: 0.08em;
   }
 
   .chrome-btn {
@@ -853,7 +856,7 @@ body[data-phase="aftermath"] #scene:active {
   }
 
   .status {
-    top: 216px;
+    top: 274px;
     left: max(15px, env(safe-area-inset-left));
     right: auto;
     max-width: 258px;
@@ -942,7 +945,7 @@ body[data-phase="aftermath"] #scene:active {
 
 @media (max-width: 500px) {
   .status {
-    top: 206px;
+    top: 274px;
     bottom: auto;
     max-width: calc(100vw - 30px);
   }

@@ -429,6 +429,7 @@
 
     waterUniforms = {
       uTime: { value: 0 },
+      uCraters: { value: craterHoles },
       uDeep: { value: new THREE.Color(0x143c4c) },
       uShallow: { value: new THREE.Color(0x2a6072) },
       uSky: { value: new THREE.Color(0xb4cfda) },
@@ -515,11 +516,14 @@
       fragmentShader: `
         varying vec3 vWorld;
         uniform float uTime;
+        uniform vec4 uCraters[${MAX_CRATERS}];
         uniform vec3 uDeep;
         uniform vec3 uShallow;
         uniform vec3 uSky;
         uniform vec3 uSun;
         void main() {
+          // Leave a dry hole where a crater was excavated below sea level.
+          ${craterDiscardGLSL('vWorld.xz')}
           vec3 view = normalize(cameraPosition - vWorld);
           float fres = pow(1.0 - clamp(view.y, 0.0, 1.0), 2.3);
           float waveA = sin(vWorld.x * 0.0062 + vWorld.z * 0.0041 + uTime * 0.25);
@@ -1128,6 +1132,43 @@
     return { x0, x1, z0, z1 };
   }
 
+  // Craters are real pits below y = 0, so the ground plane and the sea have to
+  // be cut away over them or the pit would simply be hidden by both. Both the
+  // terrain and the water fragment shaders discard inside these discs.
+  const MAX_CRATERS = 4;
+  const craterHoles = [];
+  for (let i = 0; i < MAX_CRATERS; i++) craterHoles.push(new THREE.Vector4(0, 0, 0, 0));
+  let craterHoleCount = 0;
+
+  function craterDiscardGLSL(worldExpr) {
+    return `
+      for (int i = 0; i < ${MAX_CRATERS}; i++) {
+        vec2 d = ${worldExpr} - uCraters[i].xy;
+        if (dot(d, d) < uCraters[i].z * uCraters[i].z) discard;
+      }
+    `;
+  }
+
+  function addCraterHole(x, z, radius) {
+    if (craterHoleCount >= MAX_CRATERS) return;
+    craterHoles[craterHoleCount++].set(x, z, radius, 0);
+  }
+
+  function clearCraterHoles() {
+    for (let i = 0; i < MAX_CRATERS; i++) craterHoles[i].set(0, 0, 0, 0);
+    craterHoleCount = 0;
+  }
+
+  function insideCraterHole(x, z) {
+    for (let i = 0; i < craterHoleCount; i++) {
+      const h = craterHoles[i];
+      const dx = x - h.x;
+      const dz = z - h.y;
+      if (dx * dx + dz * dz < h.z * h.z) return true;
+    }
+    return false;
+  }
+
   function makeTerrain() {
     const geo = new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, WORLD.z1 - WORLD.z0);
     mapTexture = makeGroundTexture();
@@ -1139,6 +1180,15 @@
       metalness: 0.02,
       side: THREE.DoubleSide
     });
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uCraters = { value: craterHoles };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vCraterWorld;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCraterWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\nvarying vec3 vCraterWorld;\nuniform vec4 uCraters[${MAX_CRATERS}];`)
+        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + craterDiscardGLSL('vCraterWorld.xz'));
+    };
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set((WORLD.x0 + WORLD.x1) / 2, 0, (WORLD.z0 + WORLD.z1) / 2);
@@ -1802,6 +1852,8 @@
 
   function addRubble(rec, scaleFactor = 1) {
     if (!rubbleSystem) return;
+    // Rubble sits at ground level, which would leave it floating over a crater.
+    if (insideCraterHole(rec.x, rec.z)) return;
     const i = rubbleSystem.cursor++ % rubbleSystem.capacity;
     const r = mulberry32((rec.x * 13 + rec.z * 7) | 0)();
     const dummy = rubbleSystem.dummy;
@@ -2672,7 +2724,7 @@
             p.y += p.vy * dt;
             p.z += p.vz * dt;
             p.angle += (p.vx + p.vz) * dt * 0.01;
-            if (p.y < p.sy * 0.5 + 1) {
+            if (p.y < p.sy * 0.5 + 1 && !insideCraterHole(p.x, p.z)) {
               p.y = p.sy * 0.5 + 1;
               p.vy = Math.abs(p.vy) * 0.16;
               p.vx *= 0.64;
@@ -2705,6 +2757,14 @@
 
   function spawnDebrisBurst(rec, blast, strength = 1) {
     if (!debrisSystem) return;
+    // Rubble comes to rest at ground level, which would leave it hovering over
+    // an open crater, so nothing is thrown from inside the pit.
+    if (state.target && state.targetOnLand && isMeteor(state.weapon)) {
+      const craterR = state.effects.crater;
+      const dx = rec.x - state.target.x;
+      const dz = rec.z - state.target.y;
+      if (dx * dx + dz * dz < craterR * craterR) return;
+    }
     const count = LOW_POWER ? 1 : 2;
     for (let i = 0; i < count; i++) {
       const a = Math.random() * TAU;
@@ -3287,6 +3347,7 @@
   function clearCombatEffects() {
     activeParticleSystems = [];
     debrisSystem = null;
+    clearCraterHoles();
     state.smoke = null;
     state.plume = null;
     state.glow = null;
@@ -3515,6 +3576,8 @@
     };
   }
 
+  // Ejecta blanket only: the hole itself is real, recessed geometry, so the
+  // middle of this decal stays transparent.
   function makeCraterTexture() {
     const c = document.createElement('canvas');
     c.width = c.height = 512;
@@ -3527,43 +3590,37 @@
     // Ejecta blanket streaking outward past the rim.
     ctx.save();
     ctx.translate(cx, cy);
-    for (let i = 0; i < 220; i++) {
+    for (let i = 0; i < 260; i++) {
       const a = rng() * TAU;
-      const len = rimR + 8 + rng() * 128;
-      const color = `rgba(${Math.round(120 + rng() * 40)}, ${Math.round(108 + rng() * 34)}, ${Math.round(88 + rng() * 30)}, ${(0.05 + rng() * 0.22).toFixed(3)})`;
+      const start = rimR * (0.94 + rng() * 0.16);
+      const len = start + 10 + rng() * 136;
+      const color = `rgba(${Math.round(120 + rng() * 40)}, ${Math.round(108 + rng() * 34)}, ${Math.round(88 + rng() * 30)}, ${(0.06 + rng() * 0.24).toFixed(3)})`;
       ctx.strokeStyle = color;
       ctx.lineWidth = 1 + rng() * 5;
       ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * (rimR - 6), Math.sin(a) * (rimR - 6));
+      ctx.moveTo(Math.cos(a) * start, Math.sin(a) * start);
       ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);
       ctx.stroke();
     }
     ctx.restore();
 
-    // Sunken bowl.
-    const bowl = ctx.createRadialGradient(cx, cy, 0, cx, cy, rimR);
-    bowl.addColorStop(0, 'rgba(16, 14, 12, 0.97)');
-    bowl.addColorStop(0.35, 'rgba(28, 24, 20, 0.95)');
-    bowl.addColorStop(0.72, 'rgba(58, 50, 41, 0.92)');
-    bowl.addColorStop(0.9, 'rgba(96, 84, 68, 0.9)');
-    bowl.addColorStop(1, 'rgba(74, 65, 54, 0.28)');
-    ctx.fillStyle = bowl;
+    // Scorched, dust-choked ground right behind the raised lip.
+    const ring = ctx.createRadialGradient(cx, cy, rimR, cx, cy, rimR * 1.9);
+    ring.addColorStop(0, 'rgba(52, 45, 38, 0.86)');
+    ring.addColorStop(0.42, 'rgba(74, 64, 52, 0.42)');
+    ring.addColorStop(1, 'rgba(92, 82, 68, 0)');
+    ctx.fillStyle = ring;
     ctx.beginPath();
-    ctx.arc(cx, cy, rimR, 0, TAU);
+    ctx.arc(cx, cy, rimR * 1.9, 0, TAU);
     ctx.fill();
 
-    ctx.strokeStyle = 'rgba(158, 142, 116, 0.75)';
-    ctx.lineWidth = 7;
-    ctx.beginPath();
-    ctx.arc(cx, cy, rimR - 3, 0, TAU);
-    ctx.stroke();
-
+    // Radial fractures radiating out of the lip.
     for (let i = 0; i < 26; i++) {
       const a = rng() * TAU;
-      const r0 = rng() * rimR * 0.45;
-      const r1 = rimR * (0.55 + rng() * 0.4);
+      const r0 = rimR * (1 - rng() * 0.14);
+      const r1 = rimR * (1.15 + rng() * 0.75);
       const drift = (rng() - 0.5) * 0.3;
-      ctx.strokeStyle = `rgba(9, 8, 7, ${(0.2 + rng() * 0.35).toFixed(3)})`;
+      ctx.strokeStyle = `rgba(9, 8, 7, ${(0.18 + rng() * 0.32).toFixed(3)})`;
       ctx.lineWidth = 1 + rng() * 2.4;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
@@ -3571,10 +3628,12 @@
       ctx.stroke();
     }
 
+    // Punch out the middle and fade the blanket edge into the ground.
     ctx.globalCompositeOperation = 'destination-in';
-    const mask = ctx.createRadialGradient(cx, cy, rimR * 0.55, cx, cy, 252);
-    mask.addColorStop(0, 'rgba(0,0,0,1)');
-    mask.addColorStop(0.68, 'rgba(0,0,0,0.92)');
+    const mask = ctx.createRadialGradient(cx, cy, rimR * 0.9, cx, cy, 252);
+    mask.addColorStop(0, 'rgba(0,0,0,0)');
+    mask.addColorStop(0.14, 'rgba(0,0,0,1)');
+    mask.addColorStop(0.62, 'rgba(0,0,0,1)');
     mask.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = mask;
     ctx.fillRect(0, 0, 512, 512);
@@ -3586,45 +3645,102 @@
     return tex;
   }
 
+  // Vertical profile of the pit, sampled along the lathe: dusty at the lip,
+  // cold basalt by the floor. High contrast is what makes the pit read deep.
+  function makeCraterWallTexture(radius) {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 256;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#5c5446');
+    grad.addColorStop(0.08, '#6a6153');
+    grad.addColorStop(0.22, '#6f6657');
+    grad.addColorStop(0.38, '#675e50');
+    grad.addColorStop(0.55, '#554d42');
+    grad.addColorStop(0.72, '#413a32');
+    grad.addColorStop(0.88, '#2e2823');
+    grad.addColorStop(1, '#211c18');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 256);
+
+    const rng = mulberry32(4211);
+    for (let i = 0; i < 2400; i++) {
+      const x = rng() * 128;
+      const y = rng() * 256;
+      const light = rng() > 0.55;
+      ctx.fillStyle = light
+        ? `rgba(188, 178, 158, ${(0.03 + rng() * 0.1).toFixed(3)})`
+        : `rgba(6, 5, 5, ${(0.04 + rng() * 0.15).toFixed(3)})`;
+      const s = 0.6 + rng() * 2.2;
+      ctx.fillRect(x, y, s, s * (0.7 + rng()));
+    }
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.flipY = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.repeat.x = clamp(Math.round(radius / 45), 8, 40);
+    return tex;
+  }
+
   function createCrater(x, z, radius) {
     const group = new THREE.Group();
-    group.position.set(x, 0.9, z);
+    group.position.set(x, 0, z);
     group.scale.setScalar(0.001);
 
-    const disc = new THREE.Mesh(
+    const depth = radius * 0.38;
+    // Profile runs from the buried outer toe (v = 0) to the pit floor (v = 1).
+    // The surface crosses y = 0 at exactly `radius`, which is where the terrain
+    // and water shaders cut their holes, so the seam stays closed.
+    const profile = [
+      [1.17, -0.10], [1.14, -0.018], [1.10, 0.012], [1.05, 0.03],
+      [1.00, 0.0], [0.96, -0.11], [0.86, -0.37], [0.72, -0.62],
+      [0.55, -0.82], [0.36, -0.94], [0.18, -0.995], [0.0, -1.0]
+    ].map(([r, y]) => new THREE.Vector2(r * radius, y * depth));
+
+    const bowl = new THREE.Mesh(
+      new THREE.LatheGeometry(profile, 96),
+      new THREE.MeshStandardMaterial({
+        map: makeCraterWallTexture(radius),
+        roughness: 0.97,
+        metalness: 0.02,
+        side: THREE.DoubleSide
+      })
+    );
+    bowl.castShadow = false;
+    // The sun is high enough that the whole far wall falls in the rim's shadow,
+    // which flattens the pit into a black disc; light it as open ground instead.
+    bowl.receiveShadow = false;
+    group.add(bowl);
+
+    // Ejecta blanket on the surrounding ground.
+    const decal = new THREE.Mesh(
       new THREE.CircleGeometry(radius * 2.15, 72),
       new THREE.MeshBasicMaterial({
         map: makeCraterTexture(), transparent: true, depthWrite: false
       })
     );
-    disc.rotation.x = -Math.PI / 2;
-    disc.renderOrder = 3;
-    group.add(disc);
+    decal.rotation.x = -Math.PI / 2;
+    decal.position.y = 0.35;
+    decal.renderOrder = 3;
+    group.add(decal);
 
-    // Raised rim gives the crater real relief from an oblique camera.
-    const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(radius * 0.98, radius * 0.055, 8, 72),
-      new THREE.MeshStandardMaterial({ color: 0x6a6051, roughness: 0.98, metalness: 0.02 })
-    );
-    rim.rotation.x = -Math.PI / 2;
-    rim.position.y = radius * 0.018;
-    rim.scale.z = 0.4;
-    group.add(rim);
-
+    // Molten residue pooled on the floor of the pit.
     const glow = new THREE.Mesh(
-      new THREE.CircleGeometry(radius * 0.86, 48),
+      new THREE.CircleGeometry(radius * 0.17, 40),
       new THREE.MeshBasicMaterial({
         color: 0xff6a20, transparent: true, opacity: 0.55,
         blending: THREE.AdditiveBlending, depthWrite: false
       })
     );
     glow.rotation.x = -Math.PI / 2;
-    glow.position.y = 1.6;
+    glow.position.y = -depth * 0.93;
     glow.renderOrder = 4;
     group.add(glow);
 
     effectsRoot.add(group);
-    return { group, disc, rim, glow, radius };
+    return { group, bowl, decal, glow, radius, opened: false };
   }
 
   function createExplosionVisuals(x, z, fx, groundImpact = false) {
@@ -4146,6 +4262,23 @@
     else if (event.kind === 'landmark') applyLandmarkDamage(event);
   }
 
+  // The pit opens instantly, so anything still queued for demolition inside it
+  // would end up hanging over the hole; clear it in one pass.
+  function clearCraterInterior(x, z, radius) {
+    const r2 = radius * radius;
+    for (let i = state.pendingIndex; i < state.pending.length; i++) {
+      const event = state.pending[i];
+      if (event.kind === 'building' || event.kind === 'landmark') {
+        if (event.rec.destroyed) continue;
+        const dx = event.rec.x - x;
+        const dz = event.rec.z - z;
+        if (dx * dx + dz * dz > r2) continue;
+        event.type = 'vaporize';
+        applyDamageEvent(event);
+      }
+    }
+  }
+
   function applyBuildingDamage(event) {
     const rec = event.rec;
     if (rec.destroyed) return;
@@ -4529,6 +4662,13 @@
     if (v.crater) {
       const p = clamp(t / 0.4, 0, 1);
       v.crater.group.scale.setScalar(Math.max(0.001, easeOutCubic(p)));
+      // Cut the ground only once the pit is at full size, so the hole is never
+      // visible around a half-grown bowl.
+      if (p >= 1 && !v.crater.opened) {
+        v.crater.opened = true;
+        addCraterHole(v.x, v.z, v.crater.radius);
+        clearCraterInterior(v.x, v.z, v.crater.radius);
+      }
       const heat = Math.max(0, 1 - t / 4.5);
       v.crater.glow.material.opacity = 0.6 * heat;
       v.crater.glow.visible = heat > 0.01;
@@ -4583,6 +4723,7 @@
   let masterGain = null;
   let fallAudio = null;
   let sirenAudio = null;
+  let nukeBoomAudio = null;
 
   function ensureAudio() {
     if (!state.audioEnabled) return;
@@ -4610,6 +4751,12 @@
         fallAudio = null;
       }
       stopSiren();
+      if (nukeBoomAudio) {
+        try {
+          nukeBoomAudio.pause();
+          nukeBoomAudio.currentTime = 0;
+        } catch (e) {}
+      }
     } else {
       ensureAudio();
       if (masterGain) masterGain.gain.value = 0.58;
@@ -4621,6 +4768,22 @@
     sirenAudio = new Audio('nuclear-alarm-siren.mp3');
     sirenAudio.preload = 'auto';
     sirenAudio.volume = 0.55;
+  }
+
+  function preloadNukeBoom() {
+    if (nukeBoomAudio) return;
+    nukeBoomAudio = new Audio('nuke-explosion.mp3');
+    nukeBoomAudio.preload = 'auto';
+  }
+
+  function playNukeBoom(kt) {
+    if (!state.audioEnabled) return;
+    ensureAudio();
+    preloadNukeBoom();
+    nukeBoomAudio.volume = clamp(0.55 + Math.log10(kt + 1) * 0.05, 0.55, 0.85);
+    try { nukeBoomAudio.currentTime = 0; } catch (e) {}
+    const started = nukeBoomAudio.play();
+    if (started && started.catch) started.catch(() => {});
   }
 
   function playSiren() {
@@ -4667,6 +4830,11 @@
 
   function playExplosion(kt, meteor = false) {
     if (!state.audioEnabled) return;
+    if (!meteor) {
+      // Nukes use the recorded blast sample; meteorites keep the synth rumble.
+      playNukeBoom(kt);
+      return;
+    }
     ensureAudio();
     if (!audioCtx || !masterGain) return;
     const now = audioCtx.currentTime;
@@ -5177,6 +5345,7 @@
       populateWeaponSelects();
       initEffectTextures();
       preloadSiren();
+      preloadNukeBoom();
       makeTerrain();
       buildCity();
       bindUI();
