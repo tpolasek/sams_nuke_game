@@ -4743,7 +4743,10 @@
   let masterGain = null;
   let fallAudio = null;
   let sirenAudio = null;
-  let nukeBoomAudio = null;
+  let nukeBoomData = null;
+  let nukeBoomBuffer = null;
+  let nukeBoomRequest = null;
+  let nukeBoomDecoding = null;
 
   function ensureAudio() {
     if (!state.audioEnabled) return;
@@ -4771,12 +4774,6 @@
         fallAudio = null;
       }
       stopSiren();
-      if (nukeBoomAudio) {
-        try {
-          nukeBoomAudio.pause();
-          nukeBoomAudio.currentTime = 0;
-        } catch (e) {}
-      }
     } else {
       ensureAudio();
       if (masterGain) masterGain.gain.value = 0.58;
@@ -4790,20 +4787,64 @@
     sirenAudio.volume = 0.55;
   }
 
+  // The blast sample goes through WebAudio rather than an <audio> element:
+  // play() on a media element fired outside the click gesture is blocked by
+  // Safari and by Chrome's autoplay policy, whereas the AudioContext is already
+  // unlocked by the click that starts the strike.
   function preloadNukeBoom() {
-    if (nukeBoomAudio) return;
-    nukeBoomAudio = new Audio('nuke-explosion.mp3');
-    nukeBoomAudio.preload = 'auto';
+    if (nukeBoomRequest) return nukeBoomRequest;
+    nukeBoomRequest = fetch('nuke-explosion.mp3')
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(String(res.status)))))
+      .then((data) => {
+        nukeBoomData = data;
+        return data;
+      })
+      .catch(() => {
+        nukeBoomData = null;
+        return null;
+      });
+    return nukeBoomRequest;
+  }
+
+  function nukeBoomSample() {
+    if (nukeBoomBuffer) return Promise.resolve(nukeBoomBuffer);
+    if (nukeBoomDecoding) return nukeBoomDecoding;
+    nukeBoomDecoding = preloadNukeBoom()
+      .then((data) => {
+        if (!data || !audioCtx) return null;
+        // decodeAudioData detaches its input, so pass it a copy.
+        return audioCtx.decodeAudioData(data.slice(0));
+      })
+      .then((buffer) => {
+        nukeBoomBuffer = buffer;
+        if (!buffer) nukeBoomDecoding = null;
+        return buffer;
+      })
+      .catch(() => {
+        nukeBoomDecoding = null;
+        return null;
+      });
+    return nukeBoomDecoding;
   }
 
   function playNukeBoom(kt) {
-    if (!state.audioEnabled) return;
-    ensureAudio();
-    preloadNukeBoom();
-    nukeBoomAudio.volume = clamp(0.55 + Math.log10(kt + 1) * 0.05, 0.55, 0.85);
-    try { nukeBoomAudio.currentTime = 0; } catch (e) {}
-    const started = nukeBoomAudio.play();
-    if (started && started.catch) started.catch(() => {});
+    nukeBoomSample().then((buffer) => {
+      if (!buffer || !audioCtx || !masterGain) {
+        playSynthExplosion(kt, false);
+        return;
+      }
+      const now = audioCtx.currentTime;
+      const src = audioCtx.createBufferSource();
+      const gain = audioCtx.createGain();
+      const level = clamp(0.55 + Math.log10(kt + 1) * 0.05, 0.55, 0.9);
+      src.buffer = buffer;
+      gain.gain.setValueAtTime(level, now);
+      gain.gain.setValueAtTime(level, now + buffer.duration - 0.2);
+      gain.gain.linearRampToValueAtTime(0.0001, now + buffer.duration);
+      src.connect(gain);
+      gain.connect(masterGain);
+      src.start(now);
+    });
   }
 
   function playSiren() {
@@ -4850,12 +4891,18 @@
 
   function playExplosion(kt, meteor = false) {
     if (!state.audioEnabled) return;
+    ensureAudio();
+    if (!audioCtx || !masterGain) return;
+    // Nukes use the recorded blast sample, falling back to the synth rumble if
+    // it cannot be decoded; meteorites always use the synth.
     if (!meteor) {
-      // Nukes use the recorded blast sample; meteorites keep the synth rumble.
       playNukeBoom(kt);
       return;
     }
-    ensureAudio();
+    playSynthExplosion(kt, meteor);
+  }
+
+  function playSynthExplosion(kt, meteor = false) {
     if (!audioCtx || !masterGain) return;
     const now = audioCtx.currentTime;
     const duration = meteor ? 5.4 : 3.8;
