@@ -4742,11 +4742,8 @@
   let audioCtx = null;
   let masterGain = null;
   let fallAudio = null;
-  let sirenAudio = null;
-  let nukeBoomData = null;
-  let nukeBoomBuffer = null;
-  let nukeBoomRequest = null;
-  let nukeBoomDecoding = null;
+  let sirenNode = null;
+  let sirenGain = null;
 
   function ensureAudio() {
     if (!state.audioEnabled) return;
@@ -4780,55 +4777,128 @@
     }
   }
 
-  function preloadSiren() {
-    if (sirenAudio) return;
-    sirenAudio = new Audio('nuclear-alarm-siren.mp3');
-    sirenAudio.preload = 'auto';
-    sirenAudio.volume = 0.55;
-  }
-
-  // The blast sample goes through WebAudio rather than an <audio> element:
-  // play() on a media element fired outside the click gesture is blocked by
-  // Safari and by Chrome's autoplay policy, whereas the AudioContext is already
-  // unlocked by the click that starts the strike.
-  function preloadNukeBoom() {
-    if (nukeBoomRequest) return nukeBoomRequest;
-    nukeBoomRequest = fetch('nuke-explosion.mp3')
+  // Samples are fetched at boot and decoded on first play instead of being
+  // handed to an <audio> element: an element's play() is subject to the
+  // autoplay policy (it can be refused outright, or the element can be dropped
+  // from the mix), whereas the AudioContext is unlocked by the click that
+  // starts the strike. They also share the master gain, so SOUND OFF silences
+  // them with everything else.
+  function loadSample(url, cache) {
+    if (cache.request) return cache.request;
+    cache.request = fetch(url)
       .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(String(res.status)))))
       .then((data) => {
-        nukeBoomData = data;
+        cache.data = data;
         return data;
       })
       .catch(() => {
-        nukeBoomData = null;
+        cache.request = null;
+        cache.data = null;
         return null;
       });
-    return nukeBoomRequest;
+    return cache.request;
   }
 
-  function nukeBoomSample() {
-    if (nukeBoomBuffer) return Promise.resolve(nukeBoomBuffer);
-    if (nukeBoomDecoding) return nukeBoomDecoding;
-    nukeBoomDecoding = preloadNukeBoom()
+  function decodeSample(url, cache) {
+    if (cache.buffer) return Promise.resolve(cache.buffer);
+    if (cache.decoding) return cache.decoding;
+    cache.decoding = loadSample(url, cache)
       .then((data) => {
         if (!data || !audioCtx) return null;
         // decodeAudioData detaches its input, so pass it a copy.
         return audioCtx.decodeAudioData(data.slice(0));
       })
       .then((buffer) => {
-        nukeBoomBuffer = buffer;
-        if (!buffer) nukeBoomDecoding = null;
+        cache.buffer = buffer;
+        cache.decoding = null;
         return buffer;
       })
       .catch(() => {
-        nukeBoomDecoding = null;
+        cache.decoding = null;
         return null;
       });
-    return nukeBoomDecoding;
+    return cache.decoding;
+  }
+
+  const sirenSample = { data: null, buffer: null, request: null, decoding: null };
+  const boomSample = { data: null, buffer: null, request: null, decoding: null };
+
+  function preloadSiren() {
+    loadSample('nuclear-alarm-siren.mp3', sirenSample);
+  }
+
+  function preloadNukeBoom() {
+    loadSample('nuke-explosion.mp3', boomSample);
+  }
+
+  function playSiren() {
+    if (!state.audioEnabled) return;
+    ensureAudio();
+    if (!audioCtx || !masterGain) return;
+    stopSiren();
+    const start = audioCtx.currentTime;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.85, start);
+    gain.connect(masterGain);
+    sirenGain = gain;
+    decodeSample('nuclear-alarm-siren.mp3', sirenSample).then((buffer) => {
+      // A new strike or a cancel may have replaced this run while decoding.
+      if (sirenGain !== gain) return;
+      if (!buffer) {
+        synthSiren(start, gain);
+        return;
+      }
+      const node = audioCtx.createBufferSource();
+      node.buffer = buffer;
+      node.connect(gain);
+      node.start(start);
+      sirenNode = node;
+    });
+  }
+
+  function stopSiren() {
+    if (!sirenNode && !sirenGain) return;
+    const now = audioCtx ? audioCtx.currentTime : 0;
+    if (audioCtx && sirenGain) {
+      sirenGain.gain.cancelScheduledValues(now);
+      sirenGain.gain.setValueAtTime(sirenGain.gain.value, now);
+      sirenGain.gain.linearRampToValueAtTime(0.0001, now + 0.12);
+    }
+    if (sirenNode) {
+      try { sirenNode.stop(now + 0.14); } catch (e) {}
+    }
+    sirenNode = null;
+    sirenGain = null;
+  }
+
+  // Fallback for a siren sample that cannot be loaded: a rising and falling
+  // wail on a sawtooth, close enough to read as an air-raid siren.
+  function synthSiren(start, gain) {
+    const end = start + ALERT_MS / 1000;
+    const osc = audioCtx.createOscillator();
+    const filter = audioCtx.createBiquadFilter();
+    const wail = audioCtx.createOscillator();
+    const wailGain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 520;
+    filter.type = 'lowpass';
+    filter.frequency.value = 1800;
+    wail.type = 'sine';
+    wail.frequency.value = 0.35; // up and down a couple of times across the alert
+    wailGain.gain.value = 220;
+    wail.connect(wailGain);
+    wailGain.connect(osc.frequency);
+    osc.connect(filter);
+    filter.connect(gain);
+    osc.start(start);
+    wail.start(start);
+    osc.stop(end);
+    wail.stop(end);
+    sirenNode = osc;
   }
 
   function playNukeBoom(kt) {
-    nukeBoomSample().then((buffer) => {
+    decodeSample('nuke-explosion.mp3', boomSample).then((buffer) => {
       if (!buffer || !audioCtx || !masterGain) {
         playSynthExplosion(kt, false);
         return;
@@ -4845,23 +4915,6 @@
       gain.connect(masterGain);
       src.start(now);
     });
-  }
-
-  function playSiren() {
-    if (!state.audioEnabled) return;
-    ensureAudio();
-    preloadSiren();
-    try { sirenAudio.currentTime = 0; } catch (e) {}
-    const started = sirenAudio.play();
-    if (started && started.catch) started.catch(() => {});
-  }
-
-  function stopSiren() {
-    if (!sirenAudio) return;
-    try {
-      sirenAudio.pause();
-      sirenAudio.currentTime = 0;
-    } catch (e) {}
   }
 
   function playFallWhoosh(duration, kt, meteor = false) {
