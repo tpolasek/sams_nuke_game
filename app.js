@@ -276,6 +276,7 @@
     modeNuke: $('#modeNuke'),
     modeMeteor: $('#modeMeteor'),
     mirvBtn: $('#mirvBtn'),
+    ghostBtn: $('#ghostBtn'),
     status: $('#status'),
     statusLabel: $('#statusLabel'),
     statusDetail: $('#statusDetail'),
@@ -413,6 +414,9 @@
     targetRoot = new THREE.Group();
     targetRoot.name = 'target';
     scene.add(targetRoot);
+    ghostRoot = new THREE.Group();
+    ghostRoot.name = 'ghost';
+    scene.add(ghostRoot);
     bombRoot = new THREE.Group();
     bombRoot.name = 'bomb';
     scene.add(bombRoot);
@@ -2436,6 +2440,62 @@
   let bombFall = null;
   let bombLight = null;
 
+  // 1945 comparison footprints (near-total destruction radii) drawn for scale.
+  let ghostRoot = null;
+  let ghostRingsOn = false;
+  let ghostRingMeshes = [];
+  const GHOST_RINGS = [
+    { name: 'HIROSHIMA 1945', radius: 1600, color: '#6fc8ff' },
+    { name: 'NAGASAKI 1945', radius: 2000, color: '#c39bff' }
+  ];
+
+  function ghostRingCenter() {
+    if (state.target) return { x: state.target.x, z: state.target.y };
+    const cam = (CITY.data && CITY.data.defaultCamera) || DEFAULT_CAMERA;
+    return { x: cam.tx, z: cam.tz };
+  }
+
+  function clearGhostRings() {
+    for (const m of ghostRingMeshes) {
+      ghostRoot.remove(m);
+      disposeGroup(m);
+    }
+    ghostRingMeshes = [];
+  }
+
+  function rebuildGhostRings() {
+    if (!ghostRoot) return;
+    clearGhostRings();
+    if (!ghostRingsOn) return;
+    const c = ghostRingCenter();
+    for (const def of GHOST_RINGS) {
+      const band = new THREE.Mesh(
+        new THREE.RingGeometry(0.985, 1, 160),
+        curveMaterial(new THREE.MeshBasicMaterial({
+          color: new THREE.Color(def.color), transparent: true, opacity: 0.72,
+          side: THREE.DoubleSide, depthWrite: false
+        }))
+      );
+      band.rotation.x = -Math.PI / 2;
+      band.scale.setScalar(def.radius);
+      band.position.set(c.x, 3.6, c.z);
+      band.renderOrder = 6;
+      ghostRoot.add(band);
+      ghostRingMeshes.push(band);
+
+      const label = makeRingLabel(def.name, def.color, def.radius);
+      label.position.set(c.x + def.radius * 0.72, 12, c.z - def.radius * 0.72);
+      ghostRoot.add(label);
+      ghostRingMeshes.push(label);
+    }
+  }
+
+  function setGhostRings(on) {
+    ghostRingsOn = !!on;
+    dom.ghostBtn.setAttribute('aria-pressed', String(ghostRingsOn));
+    rebuildGhostRings();
+  }
+
   function makeCircleGeometry(segments = 128) {
     const pts = [];
     for (let i = 0; i <= segments; i++) {
@@ -2614,6 +2674,7 @@
     targetRoot.add(traj);
 
     targetRings = { x, z, fx, rings, fills, group: targetRoot, helpers: [beam, traj] };
+    rebuildGhostRings();
   }
 
   function buildMeteorObject(group, size) {
@@ -5080,6 +5141,7 @@
     dom.modeNuke.disabled = !enabled;
     dom.modeMeteor.disabled = !enabled;
     dom.mirvBtn.disabled = !enabled;
+    dom.ghostBtn.disabled = !enabled;
     dom.cityNyc.disabled = !enabled;
     dom.cityDubai.disabled = !enabled;
   }
@@ -5109,6 +5171,7 @@
     dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click the city to strike · R to rebuild';
     setStatus('READY TO STRIKE', isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city', 'ready');
     updateWeaponUI();
+    rebuildGhostRings();
     if (!initial) {
       state.statsDirty = true;
     }
@@ -5143,6 +5206,8 @@
     dom.modeMeteor.addEventListener('click', () => setMode('meteor'));
 
     dom.mirvBtn.addEventListener('click', () => setMirv(!mirvEnabled));
+
+    dom.ghostBtn.addEventListener('click', () => setGhostRings(!ghostRingsOn));
 
     dom.soundBtn.addEventListener('click', () => {
       setAudioEnabled(!state.audioEnabled);
@@ -5393,6 +5458,9 @@
     get mirv() { return mirvEnabled; },
     get mirvCount() { return mirvVehicles.length; },
     get radiationSources() { return radiationSources.length; },
+    set ghostRings(on) { setGhostRings(on); },
+    get ghostRings() { return ghostRingsOn; },
+    get ghostCount() { return ghostRingMeshes.length; },
     setCamera({ tx, ty, tz, distance, azimuth, pitch }) {
       if (tx !== undefined) cameraRig.target.x = tx;
       if (ty !== undefined) cameraRig.targetY = ty;
