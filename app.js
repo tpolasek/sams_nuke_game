@@ -2869,6 +2869,7 @@
   // Target marker and falling weapon
   // ---------------------------------------------------------------------------
   let targetRings = null;
+  let alertX = null;
   let bombObject = null;
   let bombFall = null;
   let bombLight = null;
@@ -2889,6 +2890,35 @@
     disposeGroup(targetRoot);
     targetRoot.clear();
     targetRings = null;
+  }
+
+  // Red X painted on the ground at the marked impact point while the air-raid
+  // alert counts down.
+  function showAlertX(x, z) {
+    clearAlertX();
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff2f24, transparent: true, opacity: 0.95,
+      side: THREE.DoubleSide, depthWrite: false, depthTest: false
+    });
+    const group = new THREE.Group();
+    for (const rot of [Math.PI / 4, -Math.PI / 4]) {
+      const bar = new THREE.Mesh(new THREE.PlaneGeometry(240, 36), mat);
+      bar.rotation.x = -Math.PI / 2;
+      bar.rotation.z = rot;
+      bar.renderOrder = 9;
+      group.add(bar);
+    }
+    group.position.set(x, 6, z);
+    scene.add(group);
+    alertX = { group, mat };
+  }
+
+  function clearAlertX() {
+    if (!alertX) return;
+    scene.remove(alertX.group);
+    alertX.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    alertX.mat.dispose();
+    alertX = null;
   }
 
   function makeRingLabel(text, color, radius) {
@@ -3228,6 +3258,7 @@
     dom.hintText.textContent = isMeteor(selectedWeapon)
       ? 'Impact imminent — brace for impact'
       : 'Airburst imminent — brace for shockwave';
+    showAlertX(x, z);
     playSiren();
   }
 
@@ -3235,6 +3266,7 @@
     if (alertTimer) clearTimeout(alertTimer);
     alertTimer = 0;
     alertPending = null;
+    clearAlertX();
     stopSiren();
   }
 
@@ -3250,6 +3282,9 @@
     if (!alertPending) return;
     const remain = Math.max(0, (alertEnd - performance.now()) / 1000);
     dom.statusDetail.textContent = `DETONATION IN ${remain.toFixed(1)}s`;
+    if (alertX) {
+      alertX.mat.opacity = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(elapsed * 9));
+    }
   }
 
   function launchAt(x, z, onLand) {
@@ -4761,8 +4796,17 @@
   let audioCtx = null;
   let masterGain = null;
   let fallAudio = null;
+  let fallSeq = 0;
   let sirenNode = null;
   let sirenGain = null;
+
+  function stopFallAudio() {
+    fallSeq++;
+    if (fallAudio) {
+      try { fallAudio.stop(); } catch (e) {}
+      fallAudio = null;
+    }
+  }
 
   function ensureAudio() {
     if (!state.audioEnabled) return;
@@ -4785,10 +4829,7 @@
     dom.soundBtn.querySelector('.sound-icon').textContent = enabled ? '◖' : '×';
     if (!enabled) {
       if (masterGain) masterGain.gain.value = 0;
-      if (fallAudio) {
-        try { fallAudio.stop(); } catch (e) {}
-        fallAudio = null;
-      }
+      stopFallAudio();
       stopSiren();
     } else {
       ensureAudio();
@@ -4841,6 +4882,7 @@
 
   const sirenSample = { data: null, buffer: null, request: null, decoding: null };
   const boomSample = { data: null, buffer: null, request: null, decoding: null };
+  const rocketSample = { data: null, buffer: null, request: null, decoding: null };
 
   function preloadSiren() {
     loadSample('nuclear-alarm-siren.mp3', sirenSample);
@@ -4848,6 +4890,10 @@
 
   function preloadNukeBoom() {
     loadSample('nuke-explosion.mp3', boomSample);
+  }
+
+  function preloadRocketLaunch() {
+    loadSample('rocket-launch.mp3', rocketSample);
   }
 
   function playSiren() {
@@ -4939,6 +4985,38 @@
   function playFallWhoosh(duration, kt, meteor = false) {
     if (!state.audioEnabled) return;
     ensureAudio();
+    if (!audioCtx || !masterGain) return;
+    stopFallAudio();
+    const seq = fallSeq;
+    const now = audioCtx.currentTime;
+    decodeSample('rocket-launch.mp3', rocketSample).then((buffer) => {
+      // A reset or sound-off while decoding must not resurrect this run.
+      if (seq !== fallSeq || !audioCtx || !masterGain) return;
+      if (!buffer) {
+        synthFallWhoosh(duration, kt, meteor);
+        return;
+      }
+      const src = audioCtx.createBufferSource();
+      const gain = audioCtx.createGain();
+      const level = meteor ? 0.5 : 0.42;
+      src.buffer = buffer;
+      src.playbackRate.value = meteor ? 0.82 : 1;
+      const end = now + duration;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(level, now + 0.3);
+      gain.gain.setValueAtTime(level, end - 0.4);
+      gain.gain.linearRampToValueAtTime(0.0001, end);
+      src.connect(gain);
+      gain.connect(masterGain);
+      src.start(now);
+      src.stop(end + 0.05);
+      fallAudio = src;
+    });
+  }
+
+  // Fallback for a rocket-launch sample that cannot be loaded: a falling
+  // sawtooth sweep, close enough to read as a descending weapon.
+  function synthFallWhoosh(duration, kt, meteor = false) {
     if (!audioCtx || !masterGain) return;
     const now = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
@@ -5470,6 +5548,7 @@
       initEffectTextures();
       preloadSiren();
       preloadNukeBoom();
+      preloadRocketLaunch();
       makeTerrain();
       buildCity();
       bindUI();
