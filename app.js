@@ -3576,7 +3576,7 @@
       pitch: IS_SMALL ? 0.28 : 0.24
     }, 10.0);
 
-    playExplosion(weapon.yieldKt, meteor);
+    playExplosion(weapon.yieldKt, meteor, x, fx.hob, z);
     showReport();
     state.statsDirty = true;
   }
@@ -4523,13 +4523,23 @@
     sirenNode = osc;
   }
 
-  function playNukeBoom(kt) {
+  // Real 343 m/s would stall minutes at map distances, so the delay is
+  // compressed but stays proportional: close booms arrive fast, city-killers
+  // leave an eerie silent gap after the flash.
+  const SOUND_DELAY_MAX = 7;
+  function blastSoundDelay(bx, by, bz) {
+    if (bx === undefined) return 0;
+    const d = Math.hypot(camera.position.x - bx, camera.position.y - by, camera.position.z - bz);
+    return clamp((d / 343) * 0.12, 0.15, SOUND_DELAY_MAX);
+  }
+
+  function playNukeBoom(kt, delay = 0) {
     decodeSample('nuke-explosion.mp3', boomSample).then((buffer) => {
       if (!buffer || !audioCtx || !masterGain) {
-        playSynthExplosion(kt, false);
+        playSynthExplosion(kt, false, delay);
         return;
       }
-      const now = audioCtx.currentTime;
+      const now = audioCtx.currentTime + delay;
       const src = audioCtx.createBufferSource();
       const gain = audioCtx.createGain();
       const level = clamp(0.55 + Math.log10(kt + 1) * 0.05, 0.55, 0.9);
@@ -4600,22 +4610,23 @@
     fallAudio = osc;
   }
 
-  function playExplosion(kt, meteor = false) {
+  function playExplosion(kt, meteor = false, bx, by, bz) {
     if (!state.audioEnabled) return;
     ensureAudio();
     if (!audioCtx || !masterGain) return;
     // Nukes use the recorded blast sample, falling back to the synth rumble if
     // it cannot be decoded; meteorites always use the synth.
+    const delay = blastSoundDelay(bx, by, bz);
     if (!meteor) {
-      playNukeBoom(kt);
+      playNukeBoom(kt, delay);
       return;
     }
-    playSynthExplosion(kt, meteor);
+    playSynthExplosion(kt, meteor, delay);
   }
 
-  function playSynthExplosion(kt, meteor = false) {
+  function playSynthExplosion(kt, meteor = false, delay = 0) {
     if (!audioCtx || !masterGain) return;
-    const now = audioCtx.currentTime;
+    const now = audioCtx.currentTime + delay;
     const duration = meteor ? 5.4 : 3.8;
     const bufferSize = Math.floor(audioCtx.sampleRate * duration);
     const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
@@ -5187,6 +5198,7 @@
     get city() { return CITY ? CITY.id : null; },
     effectsFor,
     effectsForImpact,
+    blastSoundDelay,
     makeCraterTexture,
     makeCloudTexture,
     get mode() { return mode; },
