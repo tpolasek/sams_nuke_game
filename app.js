@@ -255,6 +255,23 @@
   let radiationSources = [];
   let radShownLevel = null;
 
+  // Prevailing wind, re-rolled per city build; smoke, clouds and the HUD
+  // indicator all lean with it.
+  const wind = { x: 0, z: 0, speed: 0 };
+  function rollWind() {
+    const speed = 4 + Math.random() * 6;
+    const a = Math.random() * TAU;
+    wind.speed = speed;
+    wind.x = Math.sin(a) * speed;
+    wind.z = Math.cos(a) * speed;
+    if (dom.windChip) {
+      const deg = (Math.atan2(wind.x, -wind.z) * 180 / Math.PI + 360) % 360;
+      const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+      const dir = names[Math.round(deg / 45) % 8];
+      dom.windChip.textContent = `WIND ${wind.speed.toFixed(0)} M/S ${dir}`;
+    }
+  }
+
   const dom = {
     canvas: $('#scene'),
     loading: $('#loading'),
@@ -277,6 +294,7 @@
     modeMeteor: $('#modeMeteor'),
     mirvBtn: $('#mirvBtn'),
     ghostBtn: $('#ghostBtn'),
+    windChip: $('#windChip'),
     status: $('#status'),
     statusLabel: $('#statusLabel'),
     statusDetail: $('#statusDetail'),
@@ -681,8 +699,12 @@
     if (!cloudPuffs.length) return;
     for (const c of cloudPuffs) {
       const s = c.sprite;
-      s.position.x += c.drift * dt;
+      s.position.x += (c.drift + wind.x * 2.2) * dt;
+      s.position.z += wind.z * 2.2 * dt;
       if (s.position.x > 13500) s.position.x -= 27000;
+      if (s.position.x < -13500) s.position.x += 27000;
+      if (s.position.z > 13500) s.position.z -= 27000;
+      if (s.position.z < -13500) s.position.z += 27000;
     }
   }
 
@@ -1968,6 +1990,7 @@
       if (o.isMesh && o.castShadow) o.customDepthMaterial = CURVED_DEPTH_MATERIAL;
     });
     state.totalStructures = buildingRecords.length + landmarks.length;
+    rollWind();
   }
 
   function disposeGroup(group) {
@@ -3768,9 +3791,9 @@
         x: x + Math.cos(a) * spread * 0.42,
         y: fx.hob + (Math.random() - 0.15) * fireSize * 0.9,
         z: z + Math.sin(a) * spread * 0.42,
-        vx: Math.cos(a) * (45 + Math.random() * 190),
+        vx: Math.cos(a) * (45 + Math.random() * 190) + wind.x * 1.2,
         vy: (30 + Math.random() * 140) * riseScale,
-        vz: Math.sin(a) * (45 + Math.random() * 190),
+        vz: Math.sin(a) * (45 + Math.random() * 190) + wind.z * 1.2,
         size0: 45 + Math.random() * Math.min(fireSize * 0.7, 900),
         size1: capSize * (0.35 + Math.random() * 0.95),
         life: (isMassive ? 18 : 10) + Math.random() * 9,
@@ -3790,9 +3813,9 @@
         x: x + Math.cos(a) * spread * Math.random(),
         y: 5 + y,
         z: z + Math.sin(a) * spread * Math.random(),
-        vx: (Math.random() - 0.5) * 55,
+        vx: (Math.random() - 0.5) * 55 + wind.x,
         vy: (28 + Math.random() * 95) * riseScale,
-        vz: (Math.random() - 0.5) * 55,
+        vz: (Math.random() - 0.5) * 55 + wind.z,
         size0: 25 + Math.random() * 60,
         size1: 90 + Math.random() * Math.max(140, capSize * 0.7),
         life: (isMassive ? 14 : 9) + Math.random() * 9,
@@ -3812,9 +3835,9 @@
         x: x + Math.cos(a) * Math.random() * fx.r20 * 0.16,
         y: 2 + Math.random() * 18,
         z: z + Math.sin(a) * Math.random() * fx.r20 * 0.16,
-        vx: Math.cos(a) * speed,
+        vx: Math.cos(a) * speed + wind.x * 1.9,
         vy: 6 + Math.random() * 30,
-        vz: Math.sin(a) * speed,
+        vz: Math.sin(a) * speed + wind.z * 1.9,
         size0: 25 + Math.random() * 75,
         size1: 160 + Math.random() * Math.max(200, fx.r5 * 0.28),
         life: 3 + Math.random() * 4,
@@ -4514,9 +4537,9 @@
         x: p.x + (Math.random() - 0.5) * 18,
         y: p.y + 2 + Math.random() * 8,
         z: p.z + (Math.random() - 0.5) * 18,
-        vx: (Math.random() - 0.5) * 7,
+        vx: (Math.random() - 0.5) * 7 + wind.x * 0.8,
         vy: 12 + Math.random() * 22,
-        vz: (Math.random() - 0.5) * 7,
+        vz: (Math.random() - 0.5) * 7 + wind.z * 0.8,
         size0: 8 + Math.random() * 18,
         size1: 18 + Math.random() * 38,
         life: 0.7 + Math.random() * 1.3,
@@ -4529,9 +4552,9 @@
         x: p.x + (Math.random() - 0.5) * 12,
         y: p.y + 8 + Math.random() * 15,
         z: p.z + (Math.random() - 0.5) * 12,
-        vx: (Math.random() - 0.5) * 10,
+        vx: (Math.random() - 0.5) * 10 + wind.x * 1.7,
         vy: 18 + Math.random() * 22,
-        vz: (Math.random() - 0.5) * 10,
+        vz: (Math.random() - 0.5) * 10 + wind.z * 1.7,
         size0: 20 + Math.random() * 30,
         size1: 70 + Math.random() * 100,
         life: 4 + Math.random() * 4,
