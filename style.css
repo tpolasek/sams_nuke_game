@@ -301,6 +301,44 @@ body {
   cursor: wait;
 }
 
+.mirv-btn {
+  appearance: none;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(11, 18, 22, 0.56);
+  color: var(--dim);
+  min-height: 40px;
+  margin-bottom: 10px;
+  padding: 0 11px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.mirv-btn:hover {
+  color: var(--ink);
+}
+
+.mirv-btn:focus-visible {
+  outline: 2px solid var(--hazard);
+  outline-offset: 2px;
+}
+
+.mirv-btn[aria-pressed="true"] {
+  background: rgba(255, 196, 91, 0.16);
+  color: var(--hazard);
+  box-shadow: inset 0 0 0 1px rgba(255, 196, 91, 0.42);
+}
+
+.mirv-btn:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
 .sound-icon {
   display: inline-block;
   margin-right: 6px;

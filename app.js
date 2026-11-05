@@ -240,8 +240,8 @@
     landmarksDestroyed: 0,
     bridgesDamaged: 0,
     totalStructures: 0,
-    pending: [],
-    pendingIndex: 0,
+    // One queue per detonation so MIRV follow-ups can overlap the first blast.
+    pendingQueues: [],
     collapsers: [],
     landCollapsers: [],
     fallingBridges: [],
@@ -270,6 +270,7 @@
     specOrigin: $('#specOrigin'),
     modeNuke: $('#modeNuke'),
     modeMeteor: $('#modeMeteor'),
+    mirvBtn: $('#mirvBtn'),
     status: $('#status'),
     statusLabel: $('#statusLabel'),
     statusDetail: $('#statusDetail'),
@@ -291,13 +292,13 @@
   // ---------------------------------------------------------------------------
   // Renderer, scene, lights, camera
   // ---------------------------------------------------------------------------
-  let renderer, scene, camera, sunLight, hemisphere, water, waterUniforms;
-  let skyMesh = null;
+  let renderer, scene, camera, sunLight, hemisphere, water, waterUniforms;  let skyMesh = null;
   let terrainMesh;
   let cityRoot = null;
   let effectsRoot = null;
   let targetRoot = null;
   let bombRoot = null;
+  let mirvRoot = null;
 
   let mapTexture = null;
   let mapCanvas = null;
@@ -408,6 +409,9 @@
     bombRoot = new THREE.Group();
     bombRoot.name = 'bomb';
     scene.add(bombRoot);
+    mirvRoot = new THREE.Group();
+    mirvRoot.name = 'mirv';
+    scene.add(mirvRoot);
 
     applyCamera();
     renderer.render(scene, camera);
@@ -2658,7 +2662,8 @@
   }
 
   function createBombObject(x, y, z, opts = {}) {
-    bombRoot.clear();
+    const solo = !!opts.solo;
+    if (!solo) bombRoot.clear();
     const group = new THREE.Group();
     group.position.set(x, y, z);
     group.traverse((o) => {
@@ -2671,12 +2676,15 @@
       // exactly on the line from the spawn point to the target.
       if (opts.dir) group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), opts.dir);
       bombRoot.add(group);
-      bombObject = group;
-      bombFall = bombFall || {};
-      bombLight = new THREE.PointLight(0xff8a3a, 14, 9000, 1.5);
-      bombLight.position.copy(group.position);
-      bombRoot.add(bombLight);
-      return group;
+      const light = new THREE.PointLight(0xff8a3a, 14, 9000, 1.5);
+      light.position.copy(group.position);
+      bombRoot.add(light);
+      if (!solo) {
+        bombObject = group;
+        bombFall = bombFall || {};
+        bombLight = light;
+      }
+      return solo ? { group, light } : group;
     }
 
     group.scale.setScalar(3.4);
@@ -2728,14 +2736,17 @@
     group.add(smokeTrail);
 
     bombRoot.add(group);
-    bombObject = group;
-    bombFall = bombFall || {};
-    bombFall.beacon = beacon;
 
-    bombLight = new THREE.PointLight(0xffaa55, 9, 2200, 1.8);
-    bombLight.position.copy(group.position);
-    bombRoot.add(bombLight);
-    return group;
+    const light = new THREE.PointLight(0xffaa55, 9, 2200, 1.8);
+    light.position.copy(group.position);
+    bombRoot.add(light);
+    if (!solo) {
+      bombObject = group;
+      bombFall = bombFall || {};
+      bombFall.beacon = beacon;
+      bombLight = light;
+    }
+    return solo ? { group, light } : group;
   }
 
   function clearBomb() {
@@ -2800,6 +2811,16 @@
   let alertEnd = 0;
   let alertTimer = 0;
 
+  // MIRV volley: extra reentry vehicles released with the primary weapon,
+  // each on its own staggered fall path to a spread target.
+  let mirvEnabled = false;
+  let mirvVehicles = [];
+
+  function setMirv(on) {
+    mirvEnabled = !!on;
+    dom.mirvBtn.setAttribute('aria-pressed', String(mirvEnabled));
+  }
+
   function armStrike(x, z, onLand) {
     if (state.phase === 'falling' || state.phase === 'blast' || state.phase === 'alert') return;
     alertPending = { x, z, onLand, from: state.phase };
@@ -2860,8 +2881,7 @@
     state.destroyed = 0;
     state.landmarksDestroyed = 0;
     state.bridgesDamaged = 0;
-    state.pending = [];
-    state.pendingIndex = 0;
+    state.pendingQueues = [];
     state.collapsers = [];
     state.landCollapsers = [];
     state.fallingBridges = [];
@@ -2873,7 +2893,9 @@
     setInputEnabled(false);
     document.body.dataset.phase = 'falling';
     dom.status.dataset.state = 'falling';
-    dom.statusLabel.textContent = meteor ? 'IMPACTOR INBOUND' : 'WEAPON RELEASED';
+    dom.statusLabel.textContent = meteor
+      ? 'IMPACTOR INBOUND'
+      : (mirvEnabled ? 'MIRV RELEASED' : 'WEAPON RELEASED');
     const startY = meteor
       ? clamp(Math.max(2600, fx.r5 * 0.55, 2400), 2400, 32000)
       : fx.hob + Math.max(1300, fx.hob * 0.5);
@@ -2901,6 +2923,7 @@
       x,
       z
     };
+    spawnMirvVehicles(x, z, startY, fx, bombFall.duration);
     dom.altimeter.hidden = false;
     dom.altLabel.textContent = meteor ? 'IMPACTOR ALTITUDE' : 'WEAPON ALTITUDE';
     dom.altitude.textContent = `${Math.round(startY).toLocaleString('en-US')} M`;
@@ -2925,6 +2948,63 @@
       azimuth: cameraRig.azimuth,
       pitch: IS_SMALL ? 0.42 : 0.36
     }, 1.7);
+  }
+
+  function spawnMirvVehicles(x, z, startY, fx, primaryDuration) {
+    mirvVehicles = [];
+    if (!mirvEnabled || isMeteor(state.weapon)) return;
+    const spread = clamp(fx.r5 * 0.85, 700, 3800);
+    for (let i = 0; i < 2; i++) {
+      const bearing = Math.random() * TAU;
+      let dist = spread * (0.75 + Math.random() * 0.5);
+      let ex = x + Math.sin(bearing) * dist;
+      let ez = z + Math.cos(bearing) * dist;
+      // Pull the aim point back toward the primary until it sits over land,
+      // so no RV drops a crater into the sea next to a land strike.
+      while (dist > 60 && !inAnyLand(ex, ez)) {
+        dist *= 0.55;
+        ex = x + Math.sin(bearing) * dist;
+        ez = z + Math.cos(bearing) * dist;
+      }
+      const rv = createBombObject(ex, startY, ez, { solo: true });
+      mirvRoot.add(rv.group);
+      mirvRoot.add(rv.light);
+      mirvVehicles.push({
+        start: elapsed,
+        duration: primaryDuration + 0.9 + i * 0.9,
+        startY,
+        endY: fx.hob,
+        startX: ex,
+        startZ: ez,
+        x: ex,
+        z: ez,
+        group: rv.group,
+        light: rv.light
+      });
+    }
+  }
+
+  function updateMirvVehicles() {
+    if (!mirvVehicles.length) return;
+    for (let i = mirvVehicles.length - 1; i >= 0; i--) {
+      const rv = mirvVehicles[i];
+      const u = clamp((elapsed - rv.start) / rv.duration, 0, 1);
+      const y = lerp(rv.startY, rv.endY, u * u);
+      rv.group.position.set(rv.startX, y, rv.startZ);
+      rv.group.rotation.y += frameDt * 0.7;
+      rv.group.rotation.z = Math.sin(u * 19) * 0.06;
+      if (rv.light) {
+        rv.light.position.set(rv.startX, y, rv.startZ);
+        rv.light.intensity = 4 + Math.sin(elapsed * 18) * 1.5;
+      }
+      if (u >= 1) {
+        mirvRoot.remove(rv.group);
+        disposeGroup(rv.group);
+        if (rv.light) mirvRoot.remove(rv.light);
+        mirvVehicles.splice(i, 1);
+        detonate(rv.x, rv.z, true);
+      }
+    }
   }
 
   function updateBombFall() {
@@ -2991,6 +3071,11 @@
       disposeGroup(bombRoot);
       bombRoot.clear();
     }
+    if (mirvRoot) {
+      disposeGroup(mirvRoot);
+      mirvRoot.clear();
+    }
+    mirvVehicles = [];
     bombObject = null;
     bombLight = null;
     bombFall = null;
@@ -3519,7 +3604,7 @@
     };
   }
 
-  function detonate(x, z) {
+  function detonate(x, z, secondary = false) {
     const fx = state.effects;
     const weapon = state.weapon;
     const meteor = isMeteor(weapon);
@@ -3556,7 +3641,7 @@
 
     if (meteor) spawnImpactParticles(x, z, fx, state.targetOnLand);
     else spawnExplosionParticles(x, z, fx, state.targetOnLand);
-    planDamage(x, z, fx);
+    state.pendingQueues.push({ start: elapsed, index: 0, events: planDamage(x, z, fx) });
     applyTreeDamage(x, z, fx);
     damageBridges(x, z, fx);
 
@@ -3579,10 +3664,10 @@
       distance: blastDistance,
       azimuth: cameraRig.azimuth - 0.1,
       pitch: IS_SMALL ? 0.28 : 0.24
-    }, 10.0);
+    }, secondary ? 6.0 : 10.0);
 
     playExplosion(weapon.yieldKt, meteor, x, fx.hob, z);
-    showReport();
+    if (!secondary) showReport();
     state.statsDirty = true;
   }
 
@@ -3891,8 +3976,7 @@
     }
 
     events.sort((a, b) => a.delay - b.delay);
-    state.pending = events;
-    state.pendingIndex = 0;
+    return events;
   }
 
   function applyDamageEvent(event) {
@@ -3904,15 +3988,17 @@
   // would end up hanging over the hole; clear it in one pass.
   function clearCraterInterior(x, z, radius) {
     const r2 = radius * radius;
-    for (let i = state.pendingIndex; i < state.pending.length; i++) {
-      const event = state.pending[i];
-      if (event.kind === 'building' || event.kind === 'landmark') {
-        if (event.rec.destroyed) continue;
-        const dx = event.rec.x - x;
-        const dz = event.rec.z - z;
-        if (dx * dx + dz * dz > r2) continue;
-        event.type = 'vaporize';
-        applyDamageEvent(event);
+    for (const q of state.pendingQueues) {
+      for (let i = q.index; i < q.events.length; i++) {
+        const event = q.events[i];
+        if (event.kind === 'building' || event.kind === 'landmark') {
+          if (event.rec.destroyed) continue;
+          const dx = event.rec.x - x;
+          const dz = event.rec.z - z;
+          if (dx * dx + dz * dz > r2) continue;
+          event.type = 'vaporize';
+          applyDamageEvent(event);
+        }
       }
     }
   }
@@ -4953,6 +5039,7 @@
     dom.meteorSelect.disabled = !enabled;
     dom.modeNuke.disabled = !enabled;
     dom.modeMeteor.disabled = !enabled;
+    dom.mirvBtn.disabled = !enabled;
     dom.cityNyc.disabled = !enabled;
     dom.cityDubai.disabled = !enabled;
   }
@@ -4964,8 +5051,7 @@
     state.destroyed = 0;
     state.landmarksDestroyed = 0;
     state.bridgesDamaged = 0;
-    state.pending = [];
-    state.pendingIndex = 0;
+    state.pendingQueues = [];
     state.collapsers = [];
     state.landCollapsers = [];
     state.fallingBridges = [];
@@ -5013,6 +5099,8 @@
 
     dom.modeNuke.addEventListener('click', () => setMode('nuke'));
     dom.modeMeteor.addEventListener('click', () => setMode('meteor'));
+
+    dom.mirvBtn.addEventListener('click', () => setMirv(!mirvEnabled));
 
     dom.soundBtn.addEventListener('click', () => {
       setAudioEnabled(!state.audioEnabled);
@@ -5098,15 +5186,19 @@
   // Main loop
   // ---------------------------------------------------------------------------
   function processPendingDamage() {
-    const since = elapsed - state.blastStart;
     let budget = LOW_POWER ? 130 : 240;
-    while (
-      state.pendingIndex < state.pending.length &&
-      state.pending[state.pendingIndex].delay <= since &&
-      budget-- > 0
-    ) {
-      const event = state.pending[state.pendingIndex++];
-      applyDamageEvent(event);
+    for (const q of state.pendingQueues) {
+      const since = elapsed - q.start;
+      while (
+        q.index < q.events.length &&
+        q.events[q.index].delay <= since &&
+        budget-- > 0
+      ) {
+        applyDamageEvent(q.events[q.index++]);
+      }
+    }
+    if (state.pendingQueues.some((q) => q.index >= q.events.length)) {
+      state.pendingQueues = state.pendingQueues.filter((q) => q.index < q.events.length);
     }
   }
 
@@ -5142,12 +5234,14 @@
 
     if (state.phase === 'falling') {
       updateBombFall();
+      updateMirvVehicles();
     }
 
     if (state.phase === 'blast' || state.phase === 'aftermath') {
       processPendingDamage();
       updateCollapsers();
       updateExplosionVisuals();
+      updateMirvVehicles();
       updateFallingBridges(dt);
       updateFireEmitters(dt);
       updateAftermathStatus();
@@ -5252,6 +5346,9 @@
     toggleShadows(on) { renderer.shadowMap.enabled = !!on; scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => m.needsUpdate = true); } }); },
     setTimeScale(value) { timeScale = clamp(value, 0.1, 20); },
     get killCamFactor() { return killCam; },
+    set mirv(on) { setMirv(on); },
+    get mirv() { return mirvEnabled; },
+    get mirvCount() { return mirvVehicles.length; },
     setCamera({ tx, ty, tz, distance, azimuth, pitch }) {
       if (tx !== undefined) cameraRig.target.x = tx;
       if (ty !== undefined) cameraRig.targetY = ty;
