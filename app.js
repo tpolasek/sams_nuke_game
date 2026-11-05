@@ -2916,6 +2916,7 @@
 
   function armStrike(x, z, onLand) {
     if (state.phase === 'falling' || state.phase === 'blast' || state.phase === 'alert') return;
+    buzz([140, 90, 140]);
     alertPending = { x, z, onLand, from: state.phase };
     alertEnd = performance.now() + ALERT_MS;
     alertTimer = setTimeout(releaseAlert, ALERT_MS);
@@ -2928,6 +2929,11 @@
       : 'Airburst imminent — brace for shockwave';
     showAlertX(x, z);
     playSiren();
+  }
+
+  // Mobile haptics: a no-op where navigator.vibrate is missing.
+  function buzz(pattern) {
+    if (navigator.vibrate) navigator.vibrate(pattern);
   }
 
   function cancelAlert() {
@@ -2966,6 +2972,7 @@
     const weapon = selectedWeapon;
     const meteor = isMeteor(weapon);
     const fx = effectsForWeapon(weapon);
+    buzz(meteor ? 40 : 60);
     state.phase = 'falling';
     state.weapon = weapon;
     state.effects = fx;
@@ -3743,6 +3750,7 @@
     cameraRig.shakeSeed = Math.random() * 1000;
     cameraRig.shake = clamp(0.9 + Math.log10(weapon.yieldKt + 1) * 0.4, 1.1, 2.6);
     killCamT = 0;
+    buzz([70, 60, 150, 60, 90 + Math.round(clamp(weapon.yieldKt, 1, 3000) / 12)]);
 
     const cloudRise = meteor
       ? clamp(fx.r5 * 0.5, 500, 14000)
