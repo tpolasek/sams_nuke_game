@@ -478,15 +478,33 @@
         void main() {
           // Leave a dry hole where a crater was excavated below sea level.
           ${craterDiscardGLSL('vWorld.xz')}
+          vec2 p = vWorld.xz;
+          float t = uTime;
+          // Three directional waves; the analytic derivatives shade the surface
+          // without extra texture fetches or vertex work.
+          float ph1 = p.x * 0.006 + p.y * 0.0025 + t * 0.62;
+          float ph2 = p.x * -0.014 + p.y * 0.010 - t * 1.08;
+          float ph3 = p.x * 0.023 + p.y * -0.016 + t * 1.7;
+          float ph4 = p.x * 0.05 + p.y * -0.041 + t * 2.6;
+          float s1 = sin(ph1); float c1 = cos(ph1);
+          float s2 = sin(ph2); float c2 = cos(ph2);
+          float s3 = sin(ph3); float c3 = cos(ph3);
+          float s4 = sin(ph4); float c4 = cos(ph4);
+          float h = s1 * 0.9 + s2 * 0.5 + s3 * 0.25 + s4 * 0.14;
+          float dhx = c1 * 0.0054 + c2 * -0.0070 + c3 * 0.0058 + c4 * 0.0070;
+          float dhz = c1 * 0.00225 + c2 * 0.0050 + c3 * -0.0040 + c4 * -0.0057;
+          vec3 n = normalize(vec3(-dhx * 13.0, 1.0, -dhz * 13.0));
           vec3 view = normalize(cameraPosition - vWorld);
-          float fres = pow(1.0 - clamp(view.y, 0.0, 1.0), 2.3);
-          float waveA = sin(vWorld.x * 0.0062 + vWorld.z * 0.0041 + uTime * 0.25);
-          float waveB = sin(vWorld.x * -0.0037 + vWorld.z * 0.0092 - uTime * 0.18);
-          float wave = (waveA + waveB) * 0.5;
-          vec3 color = mix(uDeep, uShallow, 0.34 + wave * 0.055);
+          float fres = pow(1.0 - clamp(dot(view, n), 0.0, 1.0), 2.3);
+          vec3 color = mix(uDeep, uShallow, 0.34 + h * 0.055);
           color = mix(color, uSky, fres * 0.63);
-          float glint = pow(max(0.0, wave * 0.5 + 0.5), 22.0) * pow(fres, 1.1);
-          color += uSun * glint * 0.2;
+          vec3 sunDir = vec3(-0.580, 0.726, 0.369);
+          vec3 refl = reflect(-view, n);
+          float spec = pow(max(dot(refl, sunDir), 0.0), 60.0);
+          color += uSun * spec * 0.5;
+          // Sparse whitecaps on the tallest combined crests.
+          float crest = smoothstep(1.05, 1.45, h);
+          color = mix(color, vec3(0.92, 0.97, 0.98), crest * 0.1);
           float distanceToCam = length(cameraPosition - vWorld);
           float haze = 1.0 - exp(-pow(distanceToCam * 0.000012, 1.8));
           color = mix(color, vec3(0.55, 0.67, 0.74), haze * 0.72);
