@@ -169,6 +169,50 @@ body {
   pointer-events: auto;
 }
 
+.city-toggle {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background: rgba(11, 18, 22, 0.56);
+}
+
+.city-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  min-height: 34px;
+  padding: 0 12px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.city-btn + .city-btn {
+  border-left: 1px solid var(--line);
+}
+
+.city-btn:hover {
+  color: var(--ink);
+  background: rgba(24, 31, 33, 0.78);
+}
+
+.city-btn.active {
+  color: #0b1116;
+  background: var(--hazard);
+}
+
+.city-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .chrome-btn {
   appearance: none;
   border: 1px solid var(--line);
