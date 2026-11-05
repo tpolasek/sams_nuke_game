@@ -393,6 +393,7 @@
     scene.add(water);
 
     createClouds();
+    createSun();
 
     effectsRoot = new THREE.Group();
     effectsRoot.name = 'effects';
@@ -442,8 +443,9 @@
           vec3 color = mix(uHorizon, uMid, smoothstep(0.0, 0.46, h));
           color = mix(color, uTop, smoothstep(0.36, 0.92, h));
           float sun = max(dot(vDir, uSunDir), 0.0);
-          color += vec3(1.0, 0.82, 0.55) * pow(sun, 520.0) * 1.2;
-          color += vec3(1.0, 0.88, 0.68) * pow(sun, 12.0) * 0.045;
+          // Broad atmospheric glow around the sun sprite; the disc itself is
+          // a sprite, not shader math (sky tessellation can't hold a small disc).
+          color += vec3(1.0, 0.85, 0.62) * pow(sun, 14.0) * 0.05;
           float horizonHaze = exp(-abs(vDir.y) * 10.0) * 0.08;
           color += vec3(0.85, 0.82, 0.72) * horizonHaze;
           gl_FragColor = vec4(color, 1.0);
@@ -451,6 +453,46 @@
       `
     });
     return new THREE.Mesh(geo, mat);
+  }
+
+  // The sun is one textured sprite parked 100 km out along the sun direction
+  // and re-centred on the camera each frame — a crisp disc with no extra
+  // per-pixel cost, correctly occluded by buildings.
+  let sunSprite = null;
+  const SUN_DIR = new THREE.Vector3(-0.44, 0.55, 0.28).normalize();
+  const SUN_DISTANCE = 100000;
+
+  function makeSunTexture() {
+    const size = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255, 253, 244, 1)');
+    g.addColorStop(0.055, 'rgba(255, 250, 234, 1)');
+    g.addColorStop(0.11, 'rgba(255, 236, 190, 0.62)');
+    g.addColorStop(0.3, 'rgba(255, 204, 128, 0.17)');
+    g.addColorStop(0.6, 'rgba(255, 196, 118, 0.05)');
+    g.addColorStop(1, 'rgba(255, 192, 110, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  function createSun() {
+    sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: makeSunTexture(),
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      fog: false
+    }));
+    sunSprite.position.copy(SUN_DIR).multiplyScalar(SUN_DISTANCE);
+    sunSprite.scale.set(11000, 11000, 1);
+    sunSprite.renderOrder = 2;
+    scene.add(sunSprite);
   }
 
   function makeWater() {
@@ -627,6 +669,7 @@
     );
     camera.lookAt(t.x, cameraRig.targetY, t.z);
     if (skyMesh) skyMesh.position.copy(camera.position);
+    if (sunSprite) sunSprite.position.copy(camera.position).addScaledVector(SUN_DIR, SUN_DISTANCE);
     if (scene.fog) {
       scene.fog.density = 0.00004 * clamp(9000 / Math.max(2000, cameraRig.distance), 0.08, 1);
     }
