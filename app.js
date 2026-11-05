@@ -496,15 +496,24 @@
   }
 
   function makeWater() {
-    const geo = new THREE.PlaneGeometry(170000, 170000, 1, 1);
+    const geo = new THREE.PlaneGeometry(170000, 170000, 160, 160);
     const mat = new THREE.ShaderMaterial({
       transparent: false,
       depthWrite: true,
-      uniforms: waterUniforms,
+      uniforms: Object.assign({
+        uCurveCenter: worldCurve.center,
+        uCurveStrength: worldCurve.strength,
+        uCurveMax: worldCurve.max
+      }, waterUniforms),
       vertexShader: `
         varying vec3 vWorld;
+        uniform vec2 uCurveCenter;
+        uniform float uCurveStrength;
+        uniform float uCurveMax;
         void main() {
           vec4 world = modelMatrix * vec4(position, 1.0);
+          vec2 cDelta = world.xz - uCurveCenter;
+          world.y -= min(dot(cDelta, cDelta) * uCurveStrength, uCurveMax);
           vWorld = world.xyz;
           gl_Position = projectionMatrix * viewMatrix * world;
         }
@@ -670,6 +679,7 @@
     camera.lookAt(t.x, cameraRig.targetY, t.z);
     if (skyMesh) skyMesh.position.copy(camera.position);
     if (sunSprite) sunSprite.position.copy(camera.position).addScaledVector(SUN_DIR, SUN_DISTANCE);
+    worldCurve.center.value.set(camera.position.x, camera.position.z);
     if (scene.fog) {
       scene.fog.density = 0.00004 * clamp(9000 / Math.max(2000, cameraRig.distance), 0.08, 1);
     }
@@ -898,7 +908,7 @@
   }
 
   function makeTerrain() {
-    const geo = new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, WORLD.z1 - WORLD.z0);
+    const geo = new THREE.PlaneGeometry(WORLD.x1 - WORLD.x0, WORLD.z1 - WORLD.z0, 96, 128);
     mapTexture = makeGroundTexture();
     const mat = new THREE.MeshStandardMaterial({
       map: mapTexture,
@@ -917,6 +927,9 @@
         .replace('#include <common>', `#include <common>\nvarying vec3 vCraterWorld;\nuniform vec4 uCraters[${MAX_CRATERS}];`)
         .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + craterDiscardGLSL('vCraterWorld.xz'));
     };
+    // Wrap after the crater hook so both run (curveMaterial chains the
+    // onBeforeCompile that exists at wrap time).
+    curveMaterial(mat, 'vertex');
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set((WORLD.x0 + WORLD.x1) / 2, 0, (WORLD.z0 + WORLD.z1) / 2);
@@ -932,6 +945,75 @@
   // ---------------------------------------------------------------------------
   const MATS = {};
   const SHARED_MATERIALS = new Set();
+
+  // Curved-world displacement: everything sags quadratically with distance
+  // from the camera's ground point, giving a planet-scale horizon. Two modes:
+  // 'origin' shifts small objects rigidly by their anchor (buildings stay
+  // upright and glued to the dropping terrain), 'vertex' reshapes the big
+  // ground planes themselves.
+  const worldCurve = {
+    center: { value: new THREE.Vector2(0, 0) },
+    strength: { value: 1.6e-6 },
+    max: { value: 30000.0 }
+  };
+
+  // Origin mode runs after project_vertex: the drop is applied in view space
+  // via the world-Y axis column of the view matrix, so instance scale and
+  // rotation can never distort it. cDrop is reused by the worldpos patch to
+  // keep shadow lookups aligned.
+  const CURVE_ORIGIN_GLSL = `
+    vec4 cOrigin = vec4(0.0, 0.0, 0.0, 1.0);
+    #ifdef USE_INSTANCING
+    cOrigin = instanceMatrix * cOrigin;
+    #endif
+    cOrigin = modelMatrix * cOrigin;
+    vec2 cDelta = cOrigin.xz - uCurveCenter;
+    float cDrop = min(dot(cDelta, cDelta) * uCurveStrength, uCurveMax);
+    mvPosition.y -= cDrop * viewMatrix[1].y;
+    gl_Position = projectionMatrix * mvPosition;
+  `;
+
+  const CURVE_ORIGIN_WORLDPOS_GLSL = `
+    #if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined( USE_SHADOWMAP ) || defined( USE_TRANSMISSION )
+    worldPosition.y -= cDrop;
+    #endif
+  `;
+
+  // Terrain/water planes are rotated -90 deg about X, so local +Z is world up.
+  const CURVE_VERTEX_GLSL = `
+    vec4 cWorld = modelMatrix * vec4(transformed, 1.0);
+    vec2 cDelta = cWorld.xz - uCurveCenter;
+    transformed.z -= min(dot(cDelta, cDelta) * uCurveStrength, uCurveMax);
+  `;
+
+  function curveMaterial(material, mode = 'origin') {
+    const prev = material.onBeforeCompile;
+    material.onBeforeCompile = (shader, renderer) => {
+      if (prev) prev(shader, renderer);
+      shader.uniforms.uCurveCenter = worldCurve.center;
+      shader.uniforms.uCurveStrength = worldCurve.strength;
+      shader.uniforms.uCurveMax = worldCurve.max;
+      const decls = '\nuniform vec2 uCurveCenter;\nuniform float uCurveStrength;\nuniform float uCurveMax;';
+      if (mode === 'vertex') {
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>' + decls)
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + CURVE_VERTEX_GLSL);
+      } else {
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>' + decls)
+          .replace('#include <project_vertex>', '#include <project_vertex>\n' + CURVE_ORIGIN_GLSL)
+          .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n' + CURVE_ORIGIN_WORLDPOS_GLSL);
+      }
+    };
+    return material;
+  }
+
+  // Shadows are cast through a separate depth pass; without this the depth
+  // pass renders buildings at their uncurved positions.
+  const CURVED_DEPTH_MATERIAL = curveMaterial(new THREE.MeshDepthMaterial({
+    depthPacking: THREE.RGBADepthPacking
+  }));
+
   const BUILDING_TYPES = {
     glass: {
       rough: 0.28, metal: 0.38, winW: 2.8, floorH: 4.2,
@@ -997,6 +1079,9 @@
     LANDMARK_MATERIALS.chrysler = makeFacadeMaterial('glass', 0x9ba5a4);
     LANDMARK_MATERIALS.whiteStone = makeFacadeMaterial('stone', 0xd8d1bf);
 
+    for (const m of Object.values(MATS)) curveMaterial(m);
+    for (const m of Object.values(MATS.instanced)) curveMaterial(m);
+    for (const m of Object.values(LANDMARK_MATERIALS)) curveMaterial(m);
     for (const m of Object.values(MATS)) {
       if (m && m.isMaterial) SHARED_MATERIALS.add(m);
     }
@@ -1265,8 +1350,8 @@
   function createAccessories() {
     const accessories = [
       { kind: 'antenna', records: [], geometry: null, material: MATS.darkSteel },
-      { kind: 'hvac', records: [], geometry: null, material: new THREE.MeshStandardMaterial({ color: 0x777b78, roughness: 0.9 }) },
-      { kind: 'tank', records: [], geometry: null, material: new THREE.MeshStandardMaterial({ color: 0x6c5848, roughness: 0.94 }) }
+      { kind: 'hvac', records: [], geometry: null, material: curveMaterial(new THREE.MeshStandardMaterial({ color: 0x777b78, roughness: 0.9 })) },
+      { kind: 'tank', records: [], geometry: null, material: curveMaterial(new THREE.MeshStandardMaterial({ color: 0x6c5848, roughness: 0.94 })) }
     ];
     const rng = mulberry32(4481);
     const antennaGeo = new THREE.CylinderGeometry(0.24, 0.42, 1, 5).translate(0, 0.5, 0);
@@ -1325,7 +1410,7 @@
   function createRubbleSystem() {
     const capacity = LOW_POWER ? 900 : 2200;
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x5f5b51, roughness: 1, metalness: 0.02 });
+    const mat = curveMaterial(new THREE.MeshStandardMaterial({ color: 0x5f5b51, roughness: 1, metalness: 0.02 }));
     rubbleSystem = {
       mesh: new THREE.InstancedMesh(geo, mat, capacity),
       capacity,
@@ -1614,8 +1699,8 @@
     const cableObjects = [];
     const segmentCount = spec.id === 'verrazzano' ? 10 : 8;
     const segmentLen = length / segmentCount;
-    const deckMat = new THREE.MeshStandardMaterial({ color: 0x464a49, roughness: 0.82, metalness: 0.2 });
-    const trussMat = new THREE.MeshStandardMaterial({ color: spec.type === 'suspension' ? 0x6e746f : spec.towerColor, roughness: 0.58, metalness: 0.5 });
+    const deckMat = curveMaterial(new THREE.MeshStandardMaterial({ color: 0x464a49, roughness: 0.82, metalness: 0.2 }));
+    const trussMat = curveMaterial(new THREE.MeshStandardMaterial({ color: spec.type === 'suspension' ? 0x6e746f : spec.towerColor, roughness: 0.58, metalness: 0.5 }));
 
     for (let i = 0; i < segmentCount; i++) {
       const cx = (i + 0.5) * segmentLen - length / 2;
@@ -1641,7 +1726,7 @@
       tower.position.x = tx;
       const legOffset = spec.width / 2 + 4;
       const legW = spec.type === 'suspension' ? 5.2 : 4.4;
-      const legMat = new THREE.MeshStandardMaterial({ color: spec.towerColor, roughness: 0.8, metalness: 0.08 });
+      const legMat = curveMaterial(new THREE.MeshStandardMaterial({ color: spec.towerColor, roughness: 0.8, metalness: 0.08 }));
       const legA = addBridgeBox(tower, legW, spec.towerH, legW, 0, spec.towerH / 2, legOffset, legMat, false);
       const legB = addBridgeBox(tower, legW, spec.towerH, legW, 0, spec.towerH / 2, -legOffset, legMat, false);
       addBridgeBox(tower, legW * 1.5, 7, spec.width + 10, 0, spec.deckY + 2, 0, legMat, false);
@@ -1674,7 +1759,7 @@
         const curve = new THREE.CatmullRomCurve3(cablePoints);
         const tube = new THREE.Mesh(
           new THREE.TubeGeometry(curve, 50, 1.05, 4, false),
-          new THREE.MeshStandardMaterial({ color: spec.cableColor, roughness: 0.48, metalness: 0.52 })
+          curveMaterial(new THREE.MeshStandardMaterial({ color: spec.cableColor, roughness: 0.48, metalness: 0.52 }))
         );
         tube.castShadow = false;
         group.add(tube);
@@ -1691,7 +1776,7 @@
         susGeo.setAttribute('position', new THREE.Float32BufferAttribute(susPositions, 3));
         const suspenders = new THREE.LineSegments(
           susGeo,
-          new THREE.LineBasicMaterial({ color: spec.cableColor, transparent: true, opacity: 0.72 })
+          curveMaterial(new THREE.LineBasicMaterial({ color: spec.cableColor, transparent: true, opacity: 0.72 }))
         );
         group.add(suspenders);
         cableObjects.push(suspenders);
@@ -1711,13 +1796,13 @@
           }
           const geo = new THREE.BufferGeometry();
           geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-          const stays = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: spec.cableColor, transparent: true, opacity: 0.56 }));
+          const stays = new THREE.LineSegments(geo, curveMaterial(new THREE.LineBasicMaterial({ color: spec.cableColor, transparent: true, opacity: 0.56 })));
           group.add(stays);
           cableObjects.push(stays);
         }
       }
     } else {
-      const trussMat2 = new THREE.MeshStandardMaterial({ color: spec.towerColor, roughness: 0.62, metalness: 0.45 });
+      const trussMat2 = curveMaterial(new THREE.MeshStandardMaterial({ color: spec.towerColor, roughness: 0.62, metalness: 0.45 }));
       for (const side of [-1, 1]) {
         addBridgeBox(group, length - 16, 1.2, 2.0, 0, spec.deckY + 10, side * (spec.width / 2 - 2), trussMat2, false);
         for (let i = 0; i < 12; i++) {
@@ -1727,7 +1812,7 @@
       }
     }
 
-    const railMat = new THREE.MeshStandardMaterial({ color: 0x747a76, roughness: 0.64, metalness: 0.4 });
+    const railMat = curveMaterial(new THREE.MeshStandardMaterial({ color: 0x747a76, roughness: 0.64, metalness: 0.4 }));
     addBridgeBox(group, length, 1.8, 1.5, 0, spec.deckY + 4, spec.width / 2 + 1.2, railMat, false);
     addBridgeBox(group, length, 1.8, 1.5, 0, spec.deckY + 4, -spec.width / 2 - 1.2, railMat, false);
 
@@ -1798,8 +1883,8 @@
 
     const trunkGeo = new THREE.CylinderGeometry(0.8, 1.1, 1, 5).translate(0, 0.5, 0);
     const canopyGeo = new THREE.IcosahedronGeometry(1, 0);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x55453a, roughness: 1 });
-    const canopyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 });
+    const trunkMat = curveMaterial(new THREE.MeshStandardMaterial({ color: 0x55453a, roughness: 1 }));
+    const canopyMat = curveMaterial(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 }));
     const trunkMesh = new THREE.InstancedMesh(trunkGeo, trunkMat, treeData.length);
     const canopyMesh = new THREE.InstancedMesh(canopyGeo, canopyMat, treeData.length);
     trunkMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1859,6 +1944,10 @@
     createLandmarks();
     createBridges();
     createTrees();
+    // Shadow depth passes must displace along with the visible meshes.
+    cityRoot.traverse((o) => {
+      if (o.isMesh && o.castShadow) o.customDepthMaterial = CURVED_DEPTH_MATERIAL;
+    });
     state.totalStructures = buildingRecords.length + landmarks.length;
   }
 
@@ -1950,7 +2039,10 @@
     const material = new THREE.ShaderMaterial({
       uniforms: {
         uMap: { value: texture },
-        uPixelScale: { value: renderer.domElement.height / (2 * Math.tan(deg(camera.fov) / 2)) }
+        uPixelScale: { value: renderer.domElement.height / (2 * Math.tan(deg(camera.fov) / 2)) },
+        uCurveCenter: worldCurve.center,
+        uCurveStrength: worldCurve.strength,
+        uCurveMax: worldCurve.max
       },
       vertexShader: `
         attribute float aSize;
@@ -1959,8 +2051,14 @@
         varying vec3 vColor;
         varying float vAlpha;
         uniform float uPixelScale;
+        uniform vec2 uCurveCenter;
+        uniform float uCurveStrength;
+        uniform float uCurveMax;
         void main() {
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vec3 curved = position;
+          vec2 cDelta = curved.xz - uCurveCenter;
+          curved.y -= min(dot(cDelta, cDelta) * uCurveStrength, uCurveMax);
+          vec4 mv = modelViewMatrix * vec4(curved, 1.0);
           gl_PointSize = clamp(aSize * uPixelScale / max(1.0, -mv.z), 1.0, 900.0);
           gl_Position = projectionMatrix * mv;
           vColor = aColor;
@@ -2129,7 +2227,7 @@
 
   function makeDebrisSystem(capacity) {
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0.02 });
+    const mat = curveMaterial(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, metalness: 0.02 }));
     const mesh = new THREE.InstancedMesh(geo, mat, capacity);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false;
@@ -2345,10 +2443,10 @@
   // alert counts down.
   function showAlertX(x, z) {
     clearAlertX();
-    const mat = new THREE.MeshBasicMaterial({
+    const mat = curveMaterial(new THREE.MeshBasicMaterial({
       color: 0xff2f24, transparent: true, opacity: 0.95,
       side: THREE.DoubleSide, depthWrite: false, depthTest: false
-    });
+    }));
     const group = new THREE.Group();
     for (const rot of [Math.PI / 4, -Math.PI / 4]) {
       const bar = new THREE.Mesh(new THREE.PlaneGeometry(240, 36), mat);
@@ -2405,9 +2503,9 @@
     clearTargetMarker();
     const accent = 0xffc25c;
 
-    const crossMat = new THREE.LineBasicMaterial({
+    const crossMat = curveMaterial(new THREE.LineBasicMaterial({
       color: accent, transparent: true, opacity: 0.95, depthWrite: false, depthTest: false
-    });
+    }));
     const cs = 55;
     const crossPts = [-cs, 0, 0, cs, 0, 0, 0, 0, -cs, 0, 0, cs];
     const crossGeo = new THREE.BufferGeometry();
@@ -2419,10 +2517,10 @@
 
     const dot = new THREE.Mesh(
       new THREE.RingGeometry(20, 34, 32),
-      new THREE.MeshBasicMaterial({
+      curveMaterial(new THREE.MeshBasicMaterial({
         color: accent, transparent: true, opacity: 0.95,
         side: THREE.DoubleSide, depthWrite: false, depthTest: false
-      })
+      }))
     );
     dot.rotation.x = -Math.PI / 2;
     dot.position.set(x, 4, z);
@@ -2443,10 +2541,10 @@
     for (const def of ringDefs) {
       const band = new THREE.Mesh(
         new THREE.RingGeometry(0.975, 1, 160),
-        new THREE.MeshBasicMaterial({
+        curveMaterial(new THREE.MeshBasicMaterial({
           color: new THREE.Color(def.color), transparent: true, opacity: def.opacity,
           side: THREE.DoubleSide, depthWrite: false
-        })
+        }))
       );
       band.rotation.x = -Math.PI / 2;
       band.scale.setScalar(def.radius);
@@ -2457,10 +2555,10 @@
 
       const fill = new THREE.Mesh(
         new THREE.CircleGeometry(1, 96),
-        new THREE.MeshBasicMaterial({
+        curveMaterial(new THREE.MeshBasicMaterial({
           color: new THREE.Color(def.color), transparent: true, opacity: def.alpha,
           side: THREE.DoubleSide, depthWrite: false
-        })
+        }))
       );
       fill.rotation.x = -Math.PI / 2;
       fill.scale.setScalar(def.radius);
@@ -2474,10 +2572,10 @@
       targetRoot.add(label);
     }
 
-    const beamMat = new THREE.MeshBasicMaterial({
+    const beamMat = curveMaterial(new THREE.MeshBasicMaterial({
       color: 0xffae4a, transparent: true, opacity: 0.22,
       blending: THREE.AdditiveBlending, depthWrite: false
-    });
+    }));
     const beam = new THREE.Mesh(
       new THREE.CylinderGeometry(2.2, 2.2, Math.max(200, fx.hob), 6, 1, true),
       beamMat
@@ -2492,10 +2590,10 @@
     ]);
     const traj = new THREE.Line(
       trajGeo,
-      new THREE.LineDashedMaterial({
+      curveMaterial(new THREE.LineDashedMaterial({
         color: 0xffc25c, transparent: true, opacity: 0.32,
         dashSize: 42, gapSize: 30, depthWrite: false
-      })
+      }))
     );
     traj.computeLineDistances();
     targetRoot.add(traj);
@@ -2514,10 +2612,10 @@
       pos.setXYZ(i, v.x, v.y, v.z);
     }
     geo.computeVertexNormals();
-    const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    const rock = new THREE.Mesh(geo, curveMaterial(new THREE.MeshStandardMaterial({
       color: 0x3b3530, roughness: 0.95, metalness: 0.12,
       emissive: 0xff5a12, emissiveIntensity: 1.5
-    }));
+    })));
     group.add(rock);
 
     const core = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -2559,6 +2657,9 @@
     bombRoot.clear();
     const group = new THREE.Group();
     group.position.set(x, y, z);
+    group.traverse((o) => {
+      if (o.isMesh && o.castShadow) o.customDepthMaterial = CURVED_DEPTH_MATERIAL;
+    });
 
     if (opts.meteor) {
       buildMeteorObject(group, opts.size || 12);
@@ -2576,8 +2677,8 @@
 
     group.scale.setScalar(3.4);
 
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xb9bbb3, roughness: 0.32, metalness: 0.85 });
-    const finMat = new THREE.MeshStandardMaterial({ color: 0x3f4547, roughness: 0.61, metalness: 0.48 });
+    const bodyMat = curveMaterial(new THREE.MeshStandardMaterial({ color: 0xb9bbb3, roughness: 0.32, metalness: 0.85 }));
+    const finMat = curveMaterial(new THREE.MeshStandardMaterial({ color: 0x3f4547, roughness: 0.61, metalness: 0.48 }));
     const body = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 16, 12), bodyMat);
     group.add(body);
     const nose = new THREE.Mesh(new THREE.ConeGeometry(2.4, 6, 12), bodyMat);
@@ -2967,10 +3068,16 @@
         uOpacity: { value: opacity },
         uHot: { value: new THREE.Color(colorHot) },
         uMid: { value: new THREE.Color(colorMid) },
-        uOuter: { value: new THREE.Color(colorOuter) }
+        uOuter: { value: new THREE.Color(colorOuter) },
+        uCurveCenter: worldCurve.center,
+        uCurveStrength: worldCurve.strength,
+        uCurveMax: worldCurve.max
       },
       vertexShader: `
         uniform float uTime;
+        uniform vec2 uCurveCenter;
+        uniform float uCurveStrength;
+        uniform float uCurveMax;
         varying vec3 vNormalW;
         varying vec3 vPosW;
         varying float vNoise;
@@ -2982,6 +3089,8 @@
           vNoise = n1 * 0.68 + n2 * 0.32;
           vec3 displaced = position * (1.0 + (vNoise - 0.5) * 0.4);
           vec4 world = modelMatrix * vec4(displaced, 1.0);
+          vec2 cDelta = world.xz - uCurveCenter;
+          world.y -= min(dot(cDelta, cDelta) * uCurveStrength, uCurveMax);
           vPosW = world.xyz;
           vNormalW = normalize(mat3(modelMatrix) * n);
           gl_Position = projectionMatrix * viewMatrix * world;
