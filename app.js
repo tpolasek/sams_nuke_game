@@ -327,6 +327,7 @@
   let targetRoot = null;
   let bombRoot = null;
   let mirvRoot = null;
+  let contrailSystem = null;
 
   let mapTexture = null;
   let mapCanvas = null;
@@ -2997,6 +2998,9 @@
     dom.statusLabel.textContent = meteor
       ? 'IMPACTOR INBOUND'
       : (mirvEnabled ? 'MIRV RELEASED' : 'WEAPON RELEASED');
+    contrailSystem = meteor
+      ? null
+      : createParticleSystem(LOW_POWER ? 260 : 520, smokeTexture, THREE.NormalBlending, 3);
     const startY = meteor
       ? clamp(Math.max(2600, fx.r5 * 0.55, 2400), 2400, 32000)
       : fx.hob + Math.max(1300, fx.hob * 0.5);
@@ -3132,6 +3136,26 @@
         : 4 + Math.sin(elapsed * 18) * 1.5;
     }
     dom.altitude.textContent = `${Math.round(y).toLocaleString('en-US')} M`;
+    // Vapor trail: puffs shed along the flight path linger into the blast.
+    if (contrailSystem) {
+      for (let i = 0; i < 2; i++) {
+        contrailSystem.spawn({
+          x: px + (Math.random() - 0.5) * 7,
+          y: y + (Math.random() - 0.5) * 7,
+          z: pz + (Math.random() - 0.5) * 7,
+          vx: (Math.random() - 0.5) * 5,
+          vy: 4 + Math.random() * 8,
+          vz: (Math.random() - 0.5) * 5,
+          size0: 7 + Math.random() * 9,
+          size1: 30 + Math.random() * 36,
+          life: 2.6 + Math.random() * 1.8,
+          alpha: 0.15,
+          drag: 0.3,
+          buoyancy: 2,
+          color: 0xd8d3c8
+        });
+      }
+    }
     const remain = Math.max(0, bombFall.duration * (1 - u));
     dom.statusDetail.textContent = `${meteor ? 'IMPACT' : 'AIRBURST'} IN ${remain.toFixed(1)}s · ${Math.round(y).toLocaleString('en-US')} M`;
     if (u >= 1) {
@@ -3178,6 +3202,7 @@
     }
     mirvVehicles = [];
     convoys = [];
+    contrailSystem = null;
     bombObject = null;
     bombLight = null;
     bombFall = null;
@@ -5580,6 +5605,9 @@
     get mirvCount() { return mirvVehicles.length; },
     get radiationSources() { return radiationSources.length; },
     get convoyCount() { return convoys.length; },
+    get contrailAlive() {
+      return contrailSystem ? contrailSystem.pool.reduce((n, p) => n + (p.alive ? 1 : 0), 0) : 0;
+    },
     set ghostRings(on) { setGhostRings(on); },
     get ghostRings() { return ghostRingsOn; },
     get ghostCount() { return ghostRingMeshes.length; },
