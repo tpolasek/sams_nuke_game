@@ -19,32 +19,41 @@
   // ---------------------------------------------------------------------------
   // Weapon data. Yields are in kilotons; the blast model scales from the
   // 15 kt Little Boy reference radii using cube-root blast scaling.
+  // weightLb / heightFt / widthFt are the real (or best-estimate) device specs.
   // ---------------------------------------------------------------------------
   const NUKES = [
-    { id: 'davy', name: 'Davy Crockett', yieldKt: 0.02, label: '0.02 kt', year: 1961 },
-    { id: 'w54', name: 'W54 SADM', yieldKt: 1, label: '1 kt', year: 1964 },
-    { id: 'w33', name: 'W33 Howitzer', yieldKt: 5, label: '5 kt', year: 1957 },
-    { id: 'littleboy', name: 'Little Boy', yieldKt: 15, label: '15 kt', year: 1945 },
-    { id: 'fatman', name: 'Fat Man', yieldKt: 21, label: '21 kt', year: 1945 },
-    { id: 'w76', name: 'W76', yieldKt: 100, label: '100 kt', year: 1978 },
-    { id: 'ivyking', name: 'Ivy King', yieldKt: 500, label: '500 kt', year: 1952 },
-    { id: 'b83', name: 'B83', yieldKt: 1200, label: '1.2 Mt', year: 1983 },
-    { id: 'ivymike', name: 'Ivy Mike', yieldKt: 10400, label: '10.4 Mt', year: 1952 },
-    { id: 'castlebravo', name: 'Castle Bravo', yieldKt: 15000, label: '15 Mt', year: 1954 },
-    { id: 'tsar', name: 'Tsar Bomba', yieldKt: 50000, label: '50 Mt', year: 1961 },
-    { id: 'samboy', name: 'Sam Boy', yieldKt: 1000000, label: '1 Gt' }
+    { id: 'davy', name: 'Davy Crockett', yieldKt: 0.02, label: '0.02 kt', year: '1961', img: 'assets/davy.webp', flag: 'us', origin: 'USA', weightLb: 51, heightFt: 2.7, widthFt: 0.9 },
+    { id: 'w54', name: 'W54 SADM', yieldKt: 1, label: '1 kt', year: '1964', img: 'assets/w54.webp', flag: 'us', origin: 'USA', weightLb: 68, heightFt: 1.6, widthFt: 1.0 },
+    { id: 'w33', name: 'W33 Howitzer', yieldKt: 5, label: '5 kt', year: '1957', img: 'assets/w33.webp', flag: 'us', origin: 'USA', weightLb: 243, heightFt: 4.6, widthFt: 0.7 },
+    { id: 'littleboy', name: 'Little Boy', yieldKt: 15, label: '15 kt', year: '1945', img: 'assets/littleboy.webp', flag: 'us', origin: 'USA', weightLb: 9700, heightFt: 9.8, widthFt: 2.3 },
+    { id: 'fatman', name: 'Fat Man', yieldKt: 21, label: '21 kt', year: '1945', img: 'assets/fatman.webp', flag: 'us', origin: 'USA', weightLb: 10300, heightFt: 10.7, widthFt: 5.0 },
+    { id: 'w76', name: 'W76', yieldKt: 100, label: '100 kt', year: '1978', img: 'assets/w76.webp', flag: 'us', origin: 'USA', weightLb: 200, heightFt: 4.4, widthFt: 1.5 },
+    { id: 'ivyking', name: 'Ivy King', yieldKt: 500, label: '500 kt', year: '1952', img: 'assets/ivyking.webp', flag: 'us', origin: 'USA', weightLb: 8500, heightFt: 10.7, widthFt: 5.1 },
+    { id: 'b83', name: 'B83', yieldKt: 1200, label: '1.2 Mt', year: '1983', img: 'assets/b83.webp', flag: 'us', origin: 'USA', weightLb: 2400, heightFt: 12.1, widthFt: 1.5 },
+    { id: 'ivymike', name: 'Ivy Mike', yieldKt: 10400, label: '10.4 Mt', year: '1952', img: 'assets/ivymike.webp', flag: 'us', origin: 'USA', weightLb: 119000, heightFt: 21.0, widthFt: 6.2 },
+    { id: 'castlebravo', name: 'Castle Bravo', yieldKt: 15000, label: '15 Mt', year: '1954', img: 'assets/castlebravo.webp', flag: 'us', origin: 'USA', weightLb: 50700, heightFt: 15.1, widthFt: 5.2 },
+    { id: 'tsar', name: 'Tsar Bomba', yieldKt: 50000, label: '50 Mt', year: '1961', img: 'assets/tsar.webp', flag: 'ussr', origin: 'USSR', weightLb: 59500, heightFt: 26.2, widthFt: 6.9 },
+    { id: 'samboy', name: 'Sam Boy', yieldKt: 1000000, label: '1 Gt', year: 'UNBUILT', img: 'assets/samboy.webp', flag: 'hyp', origin: 'HYPOTHETICAL', weightLb: 198000, heightFt: 39.4, widthFt: 9.8 }
   ];
 
-  // Meteorite yields are kinetic-energy equivalents, so they share the blast
-  // model with warheads but land as ground bursts and leave a crater.
+  // Meteorite yields are kinetic-energy equivalents (~19 km/s entry), so they
+  // share the blast model with warheads but land as ground bursts and leave a
+  // crater. Mass is back-computed from the yield; sizes assume the core type.
   const METEORS = [
-    { id: 'pallas', name: 'Pallas Pebble', yieldKt: 1, label: '1 kt', kind: 'meteor', core: 'stone' },
-    { id: 'eros', name: 'Eros Shard', yieldKt: 5, label: '5 kt', kind: 'meteor', core: 'iron' },
-    { id: 'apophis', name: 'Apophis Splinter', yieldKt: 25, label: '25 kt', kind: 'meteor', core: 'stone' },
-    { id: 'tunguska', name: 'Tunguska Heir', yieldKt: 1000, label: '1 Mt', kind: 'meteor', core: 'ice' },
-    { id: 'vredefort', name: 'Vredefort Strike', yieldKt: 10000, label: '10 Mt', kind: 'meteor', core: 'iron' },
-    { id: 'chicxulub', name: 'Chicxulub Echo', yieldKt: 100000, label: '100 Mt', kind: 'meteor', core: 'stone' }
+    { id: 'pallas', name: 'Pallas Pebble', yieldKt: 1, label: '1 kt', kind: 'meteor', core: 'stone', img: 'assets/pallas.webp', flag: 'space', origin: 'ASTEROID PALLAS', weightLb: 51100, heightFt: 8.0, widthFt: 8.0, year: '1802' },
+    { id: 'eros', name: 'Eros Shard', yieldKt: 5, label: '5 kt', kind: 'meteor', core: 'iron', img: 'assets/eros.webp', flag: 'space', origin: 'ASTEROID EROS', weightLb: 255700, heightFt: 10.0, widthFt: 10.0, year: '1898' },
+    { id: 'apophis', name: 'Apophis Splinter', yieldKt: 25, label: '25 kt', kind: 'meteor', core: 'stone', img: 'assets/apophis.webp', flag: 'space', origin: 'ASTEROID APOPHIS', weightLb: 1278000, heightFt: 23.6, widthFt: 23.6, year: '2004' },
+    { id: 'tunguska', name: 'Tunguska Heir', yieldKt: 1000, label: '1 Mt', kind: 'meteor', core: 'ice', img: 'assets/tunguska.webp', flag: 'space', origin: 'COMET FRAGMENT', weightLb: 51100000, heightFt: 121, widthFt: 121, year: '1908' },
+    { id: 'vredefort', name: 'Vredefort Strike', yieldKt: 10000, label: '10 Mt', kind: 'meteor', core: 'iron', img: 'assets/vredefort.webp', flag: 'space', origin: 'ASTEROID BELT', weightLb: 511000000, heightFt: 127, widthFt: 127, year: '2B YRS AGO' },
+    { id: 'chicxulub', name: 'Chicxulub Echo', yieldKt: 100000, label: '100 Mt', kind: 'meteor', core: 'stone', img: 'assets/chicxulub.webp', flag: 'space', origin: 'ASTEROID BELT', weightLb: 5110000000, heightFt: 376, widthFt: 376, year: '66M YRS AGO' }
   ];
+
+  const FLAGS = {
+    us: '<svg viewBox="0 0 30 20" xmlns="http://www.w3.org/2000/svg"><rect width="30" height="20" fill="#f2f2f2"/><g fill="#c8313e"><rect y="0" width="30" height="2.2"/><rect y="4.4" width="30" height="2.2"/><rect y="8.9" width="30" height="2.2"/><rect y="13.3" width="30" height="2.2"/><rect y="17.8" width="30" height="2.2"/></g><rect width="12.5" height="9.5" fill="#2b3a67"/><g fill="#fff"><circle cx="2.4" cy="2.4" r="0.85"/><circle cx="6.2" cy="2.4" r="0.85"/><circle cx="10" cy="2.4" r="0.85"/><circle cx="4.3" cy="4.8" r="0.85"/><circle cx="8.1" cy="4.8" r="0.85"/><circle cx="2.4" cy="7.1" r="0.85"/><circle cx="6.2" cy="7.1" r="0.85"/><circle cx="10" cy="7.1" r="0.85"/></g></svg>',
+    ussr: '<svg viewBox="0 0 30 20" xmlns="http://www.w3.org/2000/svg"><rect width="30" height="20" fill="#c8313e"/><path d="M6 3.2 L7 5.6 L9.5 5.6 L7.6 7.2 L8.3 9.6 L6 8.2 L3.7 9.6 L4.4 7.2 L2.5 5.6 L5 5.6 Z" fill="#f5c445"/><path d="M13.5 12.5 A5.4 5.4 0 1 1 20.5 5.2 L18.9 6.3 A3.6 3.6 0 1 0 14.9 11.2 Z" fill="#f5c445"/><rect x="13.2" y="4.4" width="1.6" height="9.4" rx="0.8" transform="rotate(18 14 9)" fill="#f5c445"/></svg>',
+    space: '<svg viewBox="0 0 30 20" xmlns="http://www.w3.org/2000/svg"><rect width="30" height="20" fill="#101a2c"/><g fill="#e8eef6"><circle cx="4" cy="4" r="0.7"/><circle cx="10" cy="9" r="0.55"/><circle cx="7" cy="15" r="0.7"/><circle cx="15" cy="4" r="0.55"/><circle cx="25" cy="15" r="0.7"/><circle cx="27" cy="6" r="0.55"/><circle cx="20" cy="11" r="0.6"/></g><circle cx="17" cy="9" r="2" fill="#b8c4d4"/><path d="M18.4 10.4 L24.5 15.5" stroke="#9fb2c8" stroke-width="1.2" stroke-linecap="round"/></svg>',
+    hyp: '<svg viewBox="0 0 30 20" xmlns="http://www.w3.org/2000/svg"><rect width="30" height="20" fill="#242a31"/><text x="15" y="14.5" font-size="12" font-weight="bold" fill="#ffc45b" text-anchor="middle" font-family="Menlo, monospace">?</text></svg>'
+  };
 
   const isMeteor = (weapon) => weapon.kind === 'meteor';
 
@@ -100,6 +109,16 @@
 
   function fmtKm(m) {
     return m >= 10000 ? `${(m / 1000).toFixed(0)} km` : `${(m / 1000).toFixed(2)} km`;
+  }
+
+  function fmtWeightLb(lb) {
+    if (lb >= 1e9) return `${Number((lb / 1e9).toFixed(1))}B LB`;
+    if (lb >= 1e6) return `${Number((lb / 1e6).toFixed(1))}M LB`;
+    return `${Math.round(lb).toLocaleString('en-US')} LB`;
+  }
+
+  function fmtFt(ft) {
+    return `${Number(ft.toFixed(1))} FT`;
   }
 
   function fmtMeters(m) {
@@ -308,23 +327,23 @@
     select: $('#nukeSelect'),
     meteorSelect: $('#meteorSelect'),
     weaponLabel: $('#weaponLabel'),
+    weaponImage: $('#weaponImage'),
+    weaponFlag: $('#weaponFlag'),
+    weaponName: $('#weaponName'),
     yieldBadge: $('#yieldBadge'),
     weaponMeta: $('#weaponMeta'),
+    specWeight: $('#specWeight'),
+    specHeight: $('#specHeight'),
+    specWidth: $('#specWidth'),
+    specYear: $('#specYear'),
+    specOrigin: $('#specOrigin'),
     modeNuke: $('#modeNuke'),
     modeMeteor: $('#modeMeteor'),
     status: $('#status'),
     statusLabel: $('#statusLabel'),
     statusDetail: $('#statusDetail'),
     report: $('#report'),
-    reportTime: $('#reportTime'),
-    reportNuke: $('#reportNuke'),
-    reportYield: $('#reportYield'),
-    reportHob: $('#reportHob'),
     reportDestroyed: $('#reportDestroyed'),
-    legend20: $('#legend20'),
-    legend5: $('#legend5'),
-    legendThermal: $('#legendThermal'),
-    legend1: $('#legend1'),
     hint: $('#hint'),
     hintText: $('#hintText'),
     altimeter: $('#altimeter'),
@@ -5200,9 +5219,22 @@
     fill(dom.meteorSelect, METEORS, modeWeapons.meteor.id);
   }
 
+  function updateSpecCard(weapon) {
+    dom.weaponImage.src = weapon.img;
+    dom.weaponImage.alt = weapon.name;
+    dom.weaponFlag.innerHTML = FLAGS[weapon.flag] || '';
+    dom.weaponName.textContent = weapon.name;
+    dom.yieldBadge.textContent = fmtYield(weapon.yieldKt);
+    dom.specWeight.textContent = fmtWeightLb(weapon.weightLb);
+    dom.specHeight.textContent = fmtFt(weapon.heightFt);
+    dom.specWidth.textContent = fmtFt(weapon.widthFt);
+    dom.specYear.textContent = weapon.year;
+    dom.specOrigin.textContent = weapon.origin;
+  }
+
   function updateWeaponUI() {
     selectedEffects = effectsForWeapon(selectedWeapon);
-    dom.yieldBadge.textContent = fmtYield(selectedWeapon.yieldKt);
+    updateSpecCard(selectedWeapon);
     if (isMeteor(selectedWeapon)) {
       dom.weaponMeta.textContent = `GROUND IMPACT · CRATER Ø ${fmtCrater(selectedEffects.crater)}`;
       dom.weaponLabel.textContent = 'IMPACTOR';
@@ -5240,47 +5272,19 @@
     dom.status.dataset.state = phase;
   }
 
-  function reportLocationLine(weapon, fx) {
-    const bridges = state.bridgesDamaged
-      ? ` · ${state.bridgesDamaged} BRIDGE${state.bridgesDamaged > 1 ? 'S' : ''}`
-      : '';
-    if (isMeteor(weapon)) {
-      const crater = state.targetOnLand ? `GROUND IMPACT · CRATER Ø ${fmtCrater(fx.crater)}` : 'WATER IMPACT · NO CRATER';
-      return crater + bridges;
-    }
-    return `AIRBURST AT ${Math.round(fx.hob).toLocaleString('en-US')} M${bridges}`;
-  }
-
   function showReport() {
-    const n = state.weapon;
-    const fx = state.effects;
-    dom.reportNuke.textContent = n.name;
-    dom.reportYield.textContent = fmtYield(n.yieldKt);
-    dom.reportHob.textContent = reportLocationLine(n, fx);
-    dom.legend20.textContent = fmtKm(fx.r20).toUpperCase();
-    dom.legend5.textContent = fmtKm(fx.r5).toUpperCase();
-    dom.legendThermal.textContent = fmtKm(fx.thermal).toUpperCase();
-    dom.legend1.textContent = fmtKm(fx.r1).toUpperCase();
     dom.reportDestroyed.textContent = '0';
-    dom.reportTime.textContent = 'T+00:00';
     dom.report.hidden = false;
   }
 
   function updateReportUI() {
     if (dom.report.hidden) return;
-    if (state.reportStart) {
-      const seconds = Math.max(0, Math.floor(elapsed - state.reportStart));
-      const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
-      const ss = String(seconds % 60).padStart(2, '0');
-      dom.reportTime.textContent = `T+${mm}:${ss}`;
-    }
     if (state.statsDirty) {
       state.statsDirty = false;
       dom.reportDestroyed.textContent = state.destroyed.toLocaleString('en-US');
       if (state.phase === 'aftermath') {
         dom.statusDetail.textContent = aftermathSummary();
       }
-      dom.reportHob.textContent = reportLocationLine(state.weapon, state.effects);
     }
   }
 

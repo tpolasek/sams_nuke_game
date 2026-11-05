@@ -332,12 +332,118 @@ body {
   pointer-events: none;
 }
 
-.payload-line {
+.weapon-meta {
+  margin-top: 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-align: right;
+  line-height: 1.4;
+}
+
+.spec-card {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(8, 13, 16, 0.55);
+}
+
+.spec-visual {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  height: 148px;
+  padding: 8px;
+  background: #fdfdfd;
+  border-bottom: 1px solid var(--line);
+}
+
+.spec-visual img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
+.spec-title {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  padding: 8px 11px 7px;
+}
+
+.spec-flag {
+  display: block;
+  flex: 0 0 23px;
+}
+
+.spec-flag svg {
+  display: block;
+  width: 23px;
+  height: 15px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.spec-title strong {
+  flex: 1;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.spec-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: rgba(232, 239, 233, 0.1);
+  border-top: 1px solid rgba(232, 239, 233, 0.1);
+}
+
+.spec {
+  min-width: 0;
+  padding: 6px 11px 7px;
+  background: rgba(10, 16, 20, 0.6);
+}
+
+.spec small {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.13em;
+}
+
+.spec b {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#specOrigin {
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.yield-badge.tiny {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 0 9px;
+  border-radius: 3px;
+  font-size: 11px;
 }
 
 .yield-badge {
@@ -361,15 +467,6 @@ body {
   min-height: 23px;
   padding: 0 8px;
   font-size: 10px;
-}
-
-.weapon-meta {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 8px;
-  letter-spacing: 0.08em;
-  text-align: right;
-  line-height: 1.4;
 }
 
 .status {
@@ -446,10 +543,10 @@ body {
 .report {
   position: fixed;
   z-index: 12;
-  left: max(24px, env(safe-area-inset-left));
-  bottom: max(58px, calc(env(safe-area-inset-bottom) + 48px));
-  width: 278px;
-  padding: 14px 15px 15px;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px));
+  width: 224px;
+  padding: 13px 15px 14px;
   background: linear-gradient(150deg, rgba(20, 27, 31, 0.93), rgba(10, 16, 20, 0.86));
   border: 1px solid rgba(255, 196, 91, 0.26);
   border-radius: 8px;
@@ -469,33 +566,10 @@ body {
 }
 
 .report-top {
-  display: flex;
-  justify-content: space-between;
   color: var(--dim);
   font-family: var(--mono);
   font-size: 8px;
   letter-spacing: 0.13em;
-}
-
-.report-title {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 11px;
-}
-
-.report-title strong {
-  font-size: 20px;
-  font-weight: 750;
-  letter-spacing: -0.04em;
-}
-
-.report-hob {
-  margin-top: 3px;
-  color: var(--hazard);
-  font-family: var(--mono);
-  font-size: 8px;
-  letter-spacing: 0.1em;
 }
 
 .report-count {
@@ -503,13 +577,13 @@ body {
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 14px;
-  padding-top: 11px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--line);
 }
 
 .report-count span {
-  max-width: 120px;
+  max-width: 118px;
   color: var(--muted);
   font-family: var(--mono);
   font-size: 8px;
@@ -524,41 +598,6 @@ body {
   line-height: 0.9;
   letter-spacing: -0.08em;
 }
-
-.legend {
-  display: grid;
-  gap: 6px;
-  margin-top: 13px;
-}
-
-.legend div {
-  display: grid;
-  grid-template-columns: 8px 1fr auto;
-  gap: 7px;
-  align-items: center;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 7px;
-  letter-spacing: 0.08em;
-}
-
-.legend b {
-  color: var(--ink);
-  font-size: 8px;
-  font-weight: 600;
-}
-
-.dot {
-  display: block;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-}
-
-.dot.severe { background: var(--severe); box-shadow: 0 0 6px rgba(255, 81, 69, 0.5); }
-.dot.heavy { background: var(--heavy); box-shadow: 0 0 6px rgba(255, 157, 61, 0.5); }
-.dot.thermal { background: var(--thermal); box-shadow: 0 0 6px rgba(255, 227, 122, 0.5); }
-.dot.light { background: #7e9da8; box-shadow: 0 0 6px rgba(126, 157, 168, 0.45); }
 
 .hint {
   position: fixed;
@@ -851,12 +890,59 @@ body[data-phase="aftermath"] #scene:active {
     font-size: 12px;
   }
 
+  .yield-badge.tiny {
+    min-height: 19px;
+    padding: 0 7px;
+    font-size: 10px;
+  }
+
   .weapon-meta {
     font-size: 7px;
+    margin-top: 8px;
+  }
+
+  .spec-card {
+    margin-top: 8px;
+  }
+
+  .spec-visual {
+    height: 108px;
+    padding: 6px;
+  }
+
+  .spec-title {
+    gap: 7px;
+    padding: 7px 9px 6px;
+  }
+
+  .spec-flag {
+    flex-basis: 20px;
+  }
+
+  .spec-flag svg {
+    width: 20px;
+    height: 13px;
+  }
+
+  .spec-title strong {
+    font-size: 13.5px;
+  }
+
+  .spec {
+    padding: 5px 9px 6px;
+  }
+
+  .spec small {
+    font-size: 6px;
+    margin-bottom: 3px;
+  }
+
+  .spec b {
+    font-size: 10px;
   }
 
   .status {
-    top: 274px;
+    top: 526px;
     left: max(15px, env(safe-area-inset-left));
     right: auto;
     max-width: 258px;
@@ -873,19 +959,10 @@ body[data-phase="aftermath"] #scene:active {
   }
 
   .report {
-    left: max(15px, env(safe-area-inset-left));
     right: max(15px, env(safe-area-inset-right));
     bottom: calc(env(safe-area-inset-bottom) + 46px);
-    width: auto;
-    padding: 11px 12px;
-  }
-
-  .report-title {
-    margin-top: 8px;
-  }
-
-  .report-title strong {
-    font-size: 17px;
+    width: 196px;
+    padding: 10px 12px 11px;
   }
 
   .report-count {
@@ -895,23 +972,6 @@ body[data-phase="aftermath"] #scene:active {
 
   .report-count strong {
     font-size: 22px;
-  }
-
-  .legend {
-    grid-template-columns: 1fr 1fr;
-    gap: 6px 10px;
-    margin-top: 9px;
-  }
-
-  .legend div {
-    grid-template-columns: 7px 1fr;
-    gap: 5px;
-    font-size: 6px;
-  }
-
-  .legend b {
-    grid-column: 2;
-    font-size: 7px;
   }
 
   .hint {
@@ -945,7 +1005,7 @@ body[data-phase="aftermath"] #scene:active {
 
 @media (max-width: 500px) {
   .status {
-    top: 274px;
+    top: 526px;
     bottom: auto;
     max-width: calc(100vw - 30px);
   }

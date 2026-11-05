@@ -37,10 +37,24 @@
         <select id="meteorSelect" aria-label="Select a meteorite" hidden></select>
         <span class="select-arrow" aria-hidden="true"></span>
       </div>
-      <div class="payload-line">
-        <span id="yieldBadge" class="yield-badge">15 kt</span>
-        <span id="weaponMeta" class="weapon-meta">AIRBURST · 707 M</span>
+      <div class="spec-card">
+        <div class="spec-visual">
+          <img id="weaponImage" src="" alt="">
+        </div>
+        <div class="spec-title">
+          <span class="spec-flag" id="weaponFlag" aria-hidden="true"></span>
+          <strong id="weaponName">Little Boy</strong>
+        </div>
+        <div class="spec-grid">
+          <div class="spec"><small>PAYLOAD</small><span id="yieldBadge" class="yield-badge tiny">15 kt</span></div>
+          <div class="spec"><small>WEIGHT</small><b id="specWeight">9,700 LB</b></div>
+          <div class="spec"><small>HEIGHT</small><b id="specHeight">9.8 FT</b></div>
+          <div class="spec"><small>WIDTH</small><b id="specWidth">2.3 FT</b></div>
+          <div class="spec"><small>YEAR</small><b id="specYear">1945</b></div>
+          <div class="spec"><small>ORIGIN</small><b id="specOrigin">USA</b></div>
+        </div>
       </div>
+      <div class="weapon-meta" id="weaponMeta">OPTIMAL AIRBURST · 707 M</div>
     </section>
 
     <div id="status" class="status" data-state="ready">
@@ -54,22 +68,10 @@
     <aside id="report" class="report" aria-live="polite" hidden>
       <div class="report-top">
         <span>IMPACT REPORT</span>
-        <span id="reportTime">00:00</span>
       </div>
-      <div class="report-title">
-        <strong id="reportNuke">Little Boy</strong>
-        <span id="reportYield" class="yield-badge small">15 kt</span>
-      </div>
-      <div class="report-hob" id="reportHob">AIRBURST AT 707 M</div>
       <div class="report-count">
         <span>STRUCTURES DESTROYED</span>
         <strong id="reportDestroyed">0</strong>
-      </div>
-      <div class="legend">
-        <div><i class="dot severe"></i><span>20 PSI</span><b id="legend20">0.70 KM</b></div>
-        <div><i class="dot heavy"></i><span>5 PSI</span><b id="legend5">1.72 KM</b></div>
-        <div><i class="dot thermal"></i><span>THERMAL</span><b id="legendThermal">2.00 KM</b></div>
-        <div><i class="dot light"></i><span>1 PSI</span><b id="legend1">5.35 KM</b></div>
       </div>
     </aside>
 
