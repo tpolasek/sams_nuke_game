@@ -678,11 +678,14 @@
       scene.fog.density = 0.00004 * clamp(9000 / Math.max(2000, cameraRig.distance), 0.08, 1);
     }
     if (cameraRig.shake > 0.001) {
-      const s = cameraRig.shake * cameraRig.distance * 0.0018;
-      camera.position.x += (Math.random() - 0.5) * s;
-      camera.position.y += (Math.random() - 0.5) * s * 0.7;
-      camera.position.z += (Math.random() - 0.5) * s;
-      camera.rotation.z += (Math.random() - 0.5) * cameraRig.shake * 0.008;
+      // Smooth sin wobble seeded per strike reads as a rumble; the random term
+      // adds the high-frequency jolt on top.
+      const s = cameraRig.shake * cameraRig.distance * 0.005;
+      const t = elapsed * 31 + cameraRig.shakeSeed;
+      camera.position.x += Math.sin(t * 1.1) * s + (Math.random() - 0.5) * s * 0.5;
+      camera.position.y += Math.sin(t * 1.7 + 1.3) * s * 0.6;
+      camera.position.z += Math.cos(t * 1.3 + 2.1) * s + (Math.random() - 0.5) * s * 0.5;
+      camera.rotation.z += Math.sin(t * 0.9 + 0.7) * cameraRig.shake * 0.02;
     }
   }
 
@@ -3998,7 +4001,8 @@
     applyTreeDamage(x, z, fx);
     damageBridges(x, z, fx);
 
-    cameraRig.shake = clamp(0.55 + Math.log10(weapon.yieldKt + 1) * 0.26, 0.65, 1.6);
+    cameraRig.shakeSeed = Math.random() * 1000;
+    cameraRig.shake = clamp(0.9 + Math.log10(weapon.yieldKt + 1) * 0.4, 1.1, 2.6);
 
     const cloudRise = meteor
       ? clamp(fx.r5 * 0.5, 500, 14000)
@@ -5501,8 +5505,8 @@
 
     if (waterUniforms) waterUniforms.uTime.value = elapsed;
     updateClouds(dt);
-    cameraRig.shake *= Math.exp(-dt * 2.55);
-    if (cameraRig.shake < 0.002) cameraRig.shake = 0;
+    cameraRig.shake *= Math.exp(-dt * 1.55);
+    if (cameraRig.shake < 0.008) cameraRig.shake = 0;
     updateCameraTween();
     applyCamera();
 
