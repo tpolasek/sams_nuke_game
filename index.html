@@ -14,19 +14,11 @@
     <div class="vignette"></div>
 
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-kicker"><span id="cityKicker">NEW YORK CITY</span> <span id="cityCoords">40.7128° N</span></div>
-        <h1>GROUND<span>ZERO</span></h1>
-      </div>
       <div class="top-actions">
-        <span id="windChip" class="wind-chip" aria-live="off">WIND — M/S</span>
         <div class="city-toggle" id="cityToggle" role="group" aria-label="Target city">
           <button id="cityNyc" class="city-btn active" type="button" data-city="nyc" aria-pressed="true">NYC</button>
           <button id="cityDubai" class="city-btn" type="button" data-city="dubai" aria-pressed="false">DUBAI</button>
         </div>
-        <button id="soundBtn" class="chrome-btn" type="button" aria-pressed="true">
-          <span class="sound-icon" aria-hidden="true">◖</span><span class="btn-label">SOUND ON</span>
-        </button>
         <button id="resetBtn" class="chrome-btn accent-outline" type="button" title="Rebuild the city (R)">REBUILD CITY</button>
       </div>
     </header>
@@ -38,7 +30,6 @@
         <button id="modeMeteor" class="mode-btn" type="button" aria-pressed="false">METEOR</button>
       </div>
       <button id="mirvBtn" class="mirv-btn" type="button" aria-pressed="false" title="Release three independently targeted reentry vehicles">MIRV VOLLEY · 3 RV</button>
-      <button id="ghostBtn" class="mirv-btn" type="button" aria-pressed="false" title="Overlay the 1945 destruction footprints for scale">GHOST RINGS · 1945</button>
       <div class="select-shell">
         <select id="nukeSelect" aria-label="Select a nuclear weapon"></select>
         <select id="meteorSelect" aria-label="Select a meteorite" hidden></select>
@@ -90,6 +81,7 @@
       <span class="rad-sym" aria-hidden="true">☢</span>
       <span class="rad-copy">RADIATION</span>
       <strong id="radValue">0</strong>
+      <span class="rad-unit">CPM</span>
     </div>
 
     <div id="hint" class="hint">

@@ -118,48 +118,13 @@ body {
   right: 0;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding:
     max(22px, env(safe-area-inset-top))
     max(24px, env(safe-area-inset-right))
     0
     max(24px, env(safe-area-inset-left));
   pointer-events: none;
-}
-
-.brand {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
-}
-
-.brand-kicker {
-  font-family: var(--mono);
-  color: rgba(239, 243, 239, 0.66);
-  font-size: 9px;
-  letter-spacing: 0.21em;
-  line-height: 1;
-}
-
-.brand-kicker span {
-  color: var(--hazard);
-  margin-left: 8px;
-}
-
-.brand h1 {
-  margin: 0;
-  font-family: var(--sans);
-  font-size: clamp(24px, 3.3vw, 42px);
-  font-weight: 800;
-  letter-spacing: -0.055em;
-  line-height: 0.9;
-}
-
-.brand h1 span {
-  margin-left: 3px;
-  color: transparent;
-  -webkit-text-stroke: 1px rgba(238, 240, 236, 0.58);
 }
 
 .top-actions {
@@ -177,23 +142,6 @@ body {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   background: rgba(11, 18, 22, 0.56);
-}
-
-.wind-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: rgba(11, 18, 22, 0.56);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  white-space: nowrap;
 }
 
 .city-btn {
@@ -356,17 +304,10 @@ body {
   cursor: wait;
 }
 
-.sound-icon {
-  display: inline-block;
-  margin-right: 6px;
-  font-size: 11px;
-  transform: rotate(-45deg);
-}
-
 .panel {
   position: fixed;
   z-index: 12;
-  top: 94px;
+  top: 84px;
   left: max(24px, env(safe-area-inset-left));
   width: 278px;
   padding: 15px;
@@ -768,6 +709,13 @@ body {
   color: var(--dim);
 }
 
+.rad-unit {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
 .rad-badge[data-level="low"] { border-color: rgba(122, 200, 122, 0.4); }
 .rad-badge[data-level="low"] strong,
 .rad-badge[data-level="low"] .rad-sym { color: #7ac87a; }
@@ -1014,19 +962,6 @@ body[data-phase="aftermath"] #scene:active {
       max(15px, env(safe-area-inset-left));
   }
 
-  .brand-kicker {
-    font-size: 7px;
-    letter-spacing: 0.14em;
-  }
-
-  .brand-kicker span {
-    display: none;
-  }
-
-  .brand h1 {
-    font-size: 25px;
-  }
-
   .top-actions {
     gap: 6px;
   }
@@ -1045,16 +980,8 @@ body[data-phase="aftermath"] #scene:active {
     letter-spacing: 0.08em;
   }
 
-  .chrome-btn .btn-label {
-    display: none;
-  }
-
-  .chrome-btn .sound-icon {
-    margin-right: 0;
-  }
-
   .panel {
-    top: 75px;
+    top: 66px;
     left: max(15px, env(safe-area-inset-left));
     width: min(258px, calc(100vw - 30px));
     padding: 12px;

@@ -246,7 +246,6 @@
     landCollapsers: [],
     fallingBridges: [],
     activeTimers: [],
-    audioEnabled: true,
     resetting: false
   };
 
@@ -255,23 +254,6 @@
   let radiationSources = [];
   let radShownLevel = null;
   let convoys = [];
-
-  // Prevailing wind, re-rolled per city build; smoke, clouds and the HUD
-  // indicator all lean with it.
-  const wind = { x: 0, z: 0, speed: 0 };
-  function rollWind() {
-    const speed = 4 + Math.random() * 6;
-    const a = Math.random() * TAU;
-    wind.speed = speed;
-    wind.x = Math.sin(a) * speed;
-    wind.z = Math.cos(a) * speed;
-    if (dom.windChip) {
-      const deg = (Math.atan2(wind.x, -wind.z) * 180 / Math.PI + 360) % 360;
-      const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-      const dir = names[Math.round(deg / 45) % 8];
-      dom.windChip.textContent = `WIND ${wind.speed.toFixed(0)} M/S ${dir}`;
-    }
-  }
 
   const dom = {
     canvas: $('#scene'),
@@ -294,8 +276,6 @@
     modeNuke: $('#modeNuke'),
     modeMeteor: $('#modeMeteor'),
     mirvBtn: $('#mirvBtn'),
-    ghostBtn: $('#ghostBtn'),
-    windChip: $('#windChip'),
     status: $('#status'),
     statusLabel: $('#statusLabel'),
     statusDetail: $('#statusDetail'),
@@ -310,9 +290,6 @@
     altitude: $('#altitude'),
     altLabel: $('#altLabel'),
     resetBtn: $('#resetBtn'),
-    soundBtn: $('#soundBtn'),
-    cityKicker: $('#cityKicker'),
-    cityCoords: $('#cityCoords'),
     cityNyc: $('#cityNyc'),
     cityDubai: $('#cityDubai')
   };
@@ -328,7 +305,6 @@
   let bombRoot = null;
   let mirvRoot = null;
   let contrailSystem = null;
-
   let mapTexture = null;
   let mapCanvas = null;
 
@@ -435,9 +411,6 @@
     targetRoot = new THREE.Group();
     targetRoot.name = 'target';
     scene.add(targetRoot);
-    ghostRoot = new THREE.Group();
-    ghostRoot.name = 'ghost';
-    scene.add(ghostRoot);
     bombRoot = new THREE.Group();
     bombRoot.name = 'bomb';
     scene.add(bombRoot);
@@ -705,10 +678,8 @@
       // wrapped within ±12 km of it — the seeded field spans beyond ±13.5 km,
       // so an absolute wrap would teleport whole banks across the sky on the
       // first frame.
-      c.ox += (c.drift + wind.x * 2.2) * dt;
-      c.oz += wind.z * 2.2 * dt;
+      c.ox += c.drift * dt;
       if (c.ox > 12000) c.ox -= 24000; else if (c.ox < -12000) c.ox += 24000;
-      if (c.oz > 12000) c.oz -= 24000; else if (c.oz < -12000) c.oz += 24000;
       c.sprite.position.set(c.hx + c.ox, c.sprite.position.y, c.hz + c.oz);
     }
   }
@@ -1995,7 +1966,6 @@
       if (o.isMesh && o.castShadow) o.customDepthMaterial = CURVED_DEPTH_MATERIAL;
     });
     state.totalStructures = buildingRecords.length + landmarks.length;
-    rollWind();
   }
 
   function disposeGroup(group) {
@@ -2468,62 +2438,6 @@
   let bombFall = null;
   let bombLight = null;
 
-  // 1945 comparison footprints (near-total destruction radii) drawn for scale.
-  let ghostRoot = null;
-  let ghostRingsOn = false;
-  let ghostRingMeshes = [];
-  const GHOST_RINGS = [
-    { name: 'HIROSHIMA 1945', radius: 1600, color: '#6fc8ff' },
-    { name: 'NAGASAKI 1945', radius: 2000, color: '#c39bff' }
-  ];
-
-  function ghostRingCenter() {
-    if (state.target) return { x: state.target.x, z: state.target.y };
-    const cam = (CITY.data && CITY.data.defaultCamera) || DEFAULT_CAMERA;
-    return { x: cam.tx, z: cam.tz };
-  }
-
-  function clearGhostRings() {
-    for (const m of ghostRingMeshes) {
-      ghostRoot.remove(m);
-      disposeGroup(m);
-    }
-    ghostRingMeshes = [];
-  }
-
-  function rebuildGhostRings() {
-    if (!ghostRoot) return;
-    clearGhostRings();
-    if (!ghostRingsOn) return;
-    const c = ghostRingCenter();
-    for (const def of GHOST_RINGS) {
-      const band = new THREE.Mesh(
-        new THREE.RingGeometry(0.985, 1, 160),
-        curveMaterial(new THREE.MeshBasicMaterial({
-          color: new THREE.Color(def.color), transparent: true, opacity: 0.72,
-          side: THREE.DoubleSide, depthWrite: false
-        }))
-      );
-      band.rotation.x = -Math.PI / 2;
-      band.scale.setScalar(def.radius);
-      band.position.set(c.x, 3.6, c.z);
-      band.renderOrder = 6;
-      ghostRoot.add(band);
-      ghostRingMeshes.push(band);
-
-      const label = makeRingLabel(def.name, def.color, def.radius);
-      label.position.set(c.x + def.radius * 0.72, 12, c.z - def.radius * 0.72);
-      ghostRoot.add(label);
-      ghostRingMeshes.push(label);
-    }
-  }
-
-  function setGhostRings(on) {
-    ghostRingsOn = !!on;
-    dom.ghostBtn.setAttribute('aria-pressed', String(ghostRingsOn));
-    rebuildGhostRings();
-  }
-
   function makeCircleGeometry(segments = 128) {
     const pts = [];
     for (let i = 0; i <= segments; i++) {
@@ -2702,7 +2616,6 @@
     targetRoot.add(traj);
 
     targetRings = { x, z, fx, rings, fills, group: targetRoot, helpers: [beam, traj] };
-    rebuildGhostRings();
   }
 
   function buildMeteorObject(group, size) {
@@ -3830,9 +3743,9 @@
         x: x + Math.cos(a) * spread * 0.42,
         y: fx.hob + (Math.random() - 0.15) * fireSize * 0.9,
         z: z + Math.sin(a) * spread * 0.42,
-        vx: Math.cos(a) * (45 + Math.random() * 190) + wind.x * 1.2,
+        vx: Math.cos(a) * (45 + Math.random() * 190),
         vy: (30 + Math.random() * 140) * riseScale,
-        vz: Math.sin(a) * (45 + Math.random() * 190) + wind.z * 1.2,
+        vz: Math.sin(a) * (45 + Math.random() * 190),
         size0: 45 + Math.random() * Math.min(fireSize * 0.7, 900),
         size1: capSize * (0.35 + Math.random() * 0.95),
         life: (isMassive ? 18 : 10) + Math.random() * 9,
@@ -3852,9 +3765,9 @@
         x: x + Math.cos(a) * spread * Math.random(),
         y: 5 + y,
         z: z + Math.sin(a) * spread * Math.random(),
-        vx: (Math.random() - 0.5) * 55 + wind.x,
+        vx: (Math.random() - 0.5) * 55,
         vy: (28 + Math.random() * 95) * riseScale,
-        vz: (Math.random() - 0.5) * 55 + wind.z,
+        vz: (Math.random() - 0.5) * 55,
         size0: 25 + Math.random() * 60,
         size1: 90 + Math.random() * Math.max(140, capSize * 0.7),
         life: (isMassive ? 14 : 9) + Math.random() * 9,
@@ -3874,9 +3787,9 @@
         x: x + Math.cos(a) * Math.random() * fx.r20 * 0.16,
         y: 2 + Math.random() * 18,
         z: z + Math.sin(a) * Math.random() * fx.r20 * 0.16,
-        vx: Math.cos(a) * speed + wind.x * 1.9,
+        vx: Math.cos(a) * speed,
         vy: 6 + Math.random() * 30,
-        vz: Math.sin(a) * speed + wind.z * 1.9,
+        vz: Math.sin(a) * speed,
         size0: 25 + Math.random() * 75,
         size1: 160 + Math.random() * Math.max(200, fx.r5 * 0.28),
         life: 3 + Math.random() * 4,
@@ -4536,19 +4449,21 @@
 
   function updateRadiationHUD() {
     radiationSources = radiationSources.filter((s) => elapsed - s.start < 300);
-    let dose = 0;
+    // Geiger-style reading: background hiss plus fallout ticks, decayed on
+    // the rough 7-10 rule curve and attenuated by camera distance.
+    let cpm = 14;
     for (const s of radiationSources) {
       const age = Math.max(0, elapsed - s.start);
       const decay = Math.pow(1 / (1 + age / 14), 1.35);
       const d = Math.hypot(camera.position.x - s.x, camera.position.z - s.z);
       const falloff = 1 / (1 + Math.pow(d / (s.r5 * 0.8), 2));
-      dose += s.kt * 2.4 * decay * falloff;
+      cpm += s.kt * 130 * decay * falloff;
     }
     let level = null;
-    if (dose >= 60) level = 'lethal';
-    else if (dose >= 25) level = 'severe';
-    else if (dose >= 8) level = 'elevated';
-    else if (dose >= 1.5) level = 'low';
+    if (cpm >= 100000) level = 'lethal';
+    else if (cpm >= 10000) level = 'severe';
+    else if (cpm >= 1000) level = 'elevated';
+    else if (cpm >= 150) level = 'low';
     if (level === null) {
       if (radShownLevel !== null) {
         radShownLevel = null;
@@ -4556,12 +4471,13 @@
       }
       return;
     }
-    const key = level + ':' + Math.round(dose);
+    const value = Math.round(cpm).toLocaleString('en-US');
+    const key = level + ':' + value;
     if (key === radShownLevel) return;
     radShownLevel = key;
     dom.radBadge.hidden = false;
     dom.radBadge.dataset.level = level;
-    dom.radValue.textContent = String(Math.round(dose));
+    dom.radValue.textContent = value;
   }
 
   function spawnConvoys(x, z, fx) {
@@ -4637,9 +4553,9 @@
         x: p.x + (Math.random() - 0.5) * 18,
         y: p.y + 2 + Math.random() * 8,
         z: p.z + (Math.random() - 0.5) * 18,
-        vx: (Math.random() - 0.5) * 7 + wind.x * 0.8,
+        vx: (Math.random() - 0.5) * 7,
         vy: 12 + Math.random() * 22,
-        vz: (Math.random() - 0.5) * 7 + wind.z * 0.8,
+        vz: (Math.random() - 0.5) * 7,
         size0: 8 + Math.random() * 18,
         size1: 18 + Math.random() * 38,
         life: 0.7 + Math.random() * 1.3,
@@ -4652,9 +4568,9 @@
         x: p.x + (Math.random() - 0.5) * 12,
         y: p.y + 8 + Math.random() * 15,
         z: p.z + (Math.random() - 0.5) * 12,
-        vx: (Math.random() - 0.5) * 10 + wind.x * 1.7,
+        vx: (Math.random() - 0.5) * 10,
         vy: 18 + Math.random() * 22,
-        vz: (Math.random() - 0.5) * 10 + wind.z * 1.7,
+        vz: (Math.random() - 0.5) * 10,
         size0: 20 + Math.random() * 30,
         size1: 70 + Math.random() * 100,
         life: 4 + Math.random() * 4,
@@ -4685,7 +4601,6 @@
   }
 
   function ensureAudio() {
-    if (!state.audioEnabled) return;
     if (!audioCtx) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) return;
@@ -4697,28 +4612,11 @@
     if (audioCtx.state === 'suspended') audioCtx.resume();
   }
 
-  function setAudioEnabled(enabled) {
-    state.audioEnabled = enabled;
-    dom.soundBtn.setAttribute('aria-pressed', String(enabled));
-    const label = dom.soundBtn.querySelector('.btn-label');
-    if (label) label.textContent = enabled ? 'SOUND ON' : 'SOUND OFF';
-    dom.soundBtn.querySelector('.sound-icon').textContent = enabled ? '◖' : '×';
-    if (!enabled) {
-      if (masterGain) masterGain.gain.value = 0;
-      stopFallAudio();
-      stopSiren();
-    } else {
-      ensureAudio();
-      if (masterGain) masterGain.gain.value = 0.58;
-    }
-  }
-
   // Samples are fetched at boot and decoded on first play instead of being
   // handed to an <audio> element: an element's play() is subject to the
   // autoplay policy (it can be refused outright, or the element can be dropped
   // from the mix), whereas the AudioContext is unlocked by the click that
-  // starts the strike. They also share the master gain, so SOUND OFF silences
-  // them with everything else.
+  // starts the strike. They all share the master gain.
   function loadSample(url, cache) {
     if (cache.request) return cache.request;
     cache.request = fetch(url)
@@ -4773,7 +4671,6 @@
   }
 
   function playSiren() {
-    if (!state.audioEnabled) return;
     ensureAudio();
     if (!audioCtx || !masterGain) return;
     stopSiren();
@@ -4869,7 +4766,6 @@
   }
 
   function playFallWhoosh(duration, kt, meteor = false) {
-    if (!state.audioEnabled) return;
     ensureAudio();
     if (!audioCtx || !masterGain) return;
     stopFallAudio();
@@ -4926,7 +4822,6 @@
   }
 
   function playExplosion(kt, meteor = false, bx, by, bz) {
-    if (!state.audioEnabled) return;
     ensureAudio();
     if (!audioCtx || !masterGain) return;
     // Nukes use the recorded blast sample, falling back to the synth rumble if
@@ -5288,7 +5183,6 @@
     dom.modeNuke.disabled = !enabled;
     dom.modeMeteor.disabled = !enabled;
     dom.mirvBtn.disabled = !enabled;
-    dom.ghostBtn.disabled = !enabled;
     dom.cityNyc.disabled = !enabled;
     dom.cityDubai.disabled = !enabled;
   }
@@ -5318,7 +5212,6 @@
     dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click the city to strike · R to rebuild';
     setStatus('READY TO STRIKE', isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city', 'ready');
     updateWeaponUI();
-    rebuildGhostRings();
     if (!initial) {
       state.statsDirty = true;
     }
@@ -5354,12 +5247,6 @@
 
     dom.mirvBtn.addEventListener('click', () => setMirv(!mirvEnabled));
 
-    dom.ghostBtn.addEventListener('click', () => setGhostRings(!ghostRingsOn));
-
-    dom.soundBtn.addEventListener('click', () => {
-      setAudioEnabled(!state.audioEnabled);
-    });
-
     dom.resetBtn.addEventListener('click', () => {
       resetGame();
     });
@@ -5379,8 +5266,6 @@
     dom.cityDubai.classList.toggle('active', id === 'dubai');
     dom.cityNyc.setAttribute('aria-pressed', String(id === 'nyc'));
     dom.cityDubai.setAttribute('aria-pressed', String(id === 'dubai'));
-    dom.cityKicker.textContent = CITY.kicker;
-    dom.cityCoords.textContent = CITY.coords;
     if (waterUniforms && CITY.water) {
       waterUniforms.uDeep.value.setHex(CITY.water.deep);
       waterUniforms.uShallow.value.setHex(CITY.water.shallow);
@@ -5610,9 +5495,6 @@
     get contrailAlive() {
       return contrailSystem ? contrailSystem.pool.reduce((n, p) => n + (p.alive ? 1 : 0), 0) : 0;
     },
-    set ghostRings(on) { setGhostRings(on); },
-    get ghostRings() { return ghostRingsOn; },
-    get ghostCount() { return ghostRingMeshes.length; },
     setCamera({ tx, ty, tz, distance, azimuth, pitch }) {
       if (tx !== undefined) cameraRig.target.x = tx;
       if (ty !== undefined) cameraRig.targetY = ty;
