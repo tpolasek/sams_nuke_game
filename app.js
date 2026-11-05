@@ -254,6 +254,7 @@
   // decayed on the rough 7-10 rule curve.
   let radiationSources = [];
   let radShownLevel = null;
+  let convoys = [];
 
   // Prevailing wind, re-rolled per city build; smoke, clouds and the HUD
   // indicator all lean with it.
@@ -3168,6 +3169,7 @@
       mirvRoot.clear();
     }
     mirvVehicles = [];
+    convoys = [];
     bombObject = null;
     bombLight = null;
     bombFall = null;
@@ -3762,6 +3764,7 @@
     playExplosion(weapon.yieldKt, meteor, x, fx.hob, z);
     if (!secondary) showReport();
     radiationSources.push({ x, z, r5: fx.r5, kt: weapon.yieldKt, start: elapsed });
+    if (state.targetOnLand) spawnConvoys(x, z, fx);
     state.statsDirty = true;
   }
 
@@ -4523,6 +4526,67 @@
     dom.radBadge.hidden = false;
     dom.radBadge.dataset.level = level;
     dom.radValue.textContent = String(Math.round(dose));
+  }
+
+  function spawnConvoys(x, z, fx) {
+    convoys = [];
+    const count = LOW_POWER ? 5 : 9;
+    const stopDist = Math.max(350, fx.r5 * 0.4);
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * TAU;
+      const startDist = fx.r5 * (1.8 + Math.random() * 1.6) + 800;
+      const sx = x + Math.sin(a) * startDist;
+      const sz = z + Math.cos(a) * startDist;
+      const group = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(10, 7, 22),
+        curveMaterial(new THREE.MeshStandardMaterial({ color: 0xd8d5cc, roughness: 0.5, metalness: 0.2 }))
+      );
+      body.position.y = 5;
+      group.add(body);
+      const mkFlash = (color, scale, off) => {
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: glowTexture, color, transparent: true, opacity: 0.9,
+          blending: THREE.AdditiveBlending, depthWrite: false
+        }));
+        s.scale.set(scale, scale, 1);
+        s.position.set(off, 14, 0);
+        group.add(s);
+        return s;
+      };
+      const red = mkFlash(0xff3038, 24, -5);
+      const blue = mkFlash(0x3a6cff, 18, 5);
+      group.position.set(sx, 0, sz);
+      effectsRoot.add(group);
+      const len = Math.hypot(x - sx, z - sz);
+      convoys.push({
+        group, red, blue,
+        sx, sz,
+        dirX: (x - sx) / len, dirZ: (z - sz) / len,
+        startDist, stopDist,
+        speed: 60 + Math.random() * 45,
+        start: elapsed + 2 + Math.random() * 6,
+        phase: Math.random() * TAU,
+        oriented: false
+      });
+    }
+  }
+
+  function updateConvoys() {
+    if (!convoys.length) return;
+    for (const c of convoys) {
+      const t = Math.max(0, elapsed - c.start);
+      const d = Math.max(c.stopDist, c.startDist - t * c.speed);
+      if (!c.oriented) {
+        c.group.rotation.y = Math.atan2(c.dirX, c.dirZ);
+        c.oriented = true;
+      }
+      const run = c.startDist - d;
+      c.group.position.set(c.sx + c.dirX * run, 0, c.sz + c.dirZ * run);
+      const strobe = Math.sin(elapsed * 11 + c.phase);
+      c.red.material.opacity = strobe > 0 ? 0.95 : 0.06;
+      c.blue.material.opacity = strobe > 0 ? 0.06 : 0.8;
+    }
   }
 
   function updateFireEmitters(dt) {
@@ -5372,6 +5436,7 @@
       updateCollapsers();
       updateExplosionVisuals();
       updateMirvVehicles();
+      updateConvoys();
       updateFallingBridges(dt);
       updateFireEmitters(dt);
       updateAftermathStatus();
@@ -5481,6 +5546,7 @@
     get mirv() { return mirvEnabled; },
     get mirvCount() { return mirvVehicles.length; },
     get radiationSources() { return radiationSources.length; },
+    get convoyCount() { return convoys.length; },
     set ghostRings(on) { setGhostRings(on); },
     get ghostRings() { return ghostRingsOn; },
     get ghostCount() { return ghostRingMeshes.length; },
