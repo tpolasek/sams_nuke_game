@@ -250,6 +250,11 @@
     resetting: false
   };
 
+  // Fallout sources: one per surface/low burst, dose read at the camera and
+  // decayed on the rough 7-10 rule curve.
+  let radiationSources = [];
+  let radShownLevel = null;
+
   const dom = {
     canvas: $('#scene'),
     loading: $('#loading'),
@@ -276,6 +281,8 @@
     statusDetail: $('#statusDetail'),
     report: $('#report'),
     reportDestroyed: $('#reportDestroyed'),
+    radBadge: $('#radBadge'),
+    radValue: $('#radValue'),
     hint: $('#hint'),
     hintText: $('#hintText'),
     altimeter: $('#altimeter'),
@@ -2757,6 +2764,7 @@
     bombObject = null;
     bombLight = null;
     bombFall = null;
+    radiationSources = [];
     dom.altimeter.hidden = true;
   }
 
@@ -3079,6 +3087,7 @@
     bombObject = null;
     bombLight = null;
     bombFall = null;
+    radiationSources = [];
     dom.altimeter.hidden = true;
   }
 
@@ -3668,6 +3677,7 @@
 
     playExplosion(weapon.yieldKt, meteor, x, fx.hob, z);
     if (!secondary) showReport();
+    radiationSources.push({ x, z, r5: fx.r5, kt: weapon.yieldKt, start: elapsed });
     state.statsDirty = true;
   }
 
@@ -4401,6 +4411,36 @@
     }
   }
 
+  function updateRadiationHUD() {
+    radiationSources = radiationSources.filter((s) => elapsed - s.start < 300);
+    let dose = 0;
+    for (const s of radiationSources) {
+      const age = Math.max(0, elapsed - s.start);
+      const decay = Math.pow(1 / (1 + age / 14), 1.35);
+      const d = Math.hypot(camera.position.x - s.x, camera.position.z - s.z);
+      const falloff = 1 / (1 + Math.pow(d / (s.r5 * 0.8), 2));
+      dose += s.kt * 2.4 * decay * falloff;
+    }
+    let level = null;
+    if (dose >= 60) level = 'lethal';
+    else if (dose >= 25) level = 'severe';
+    else if (dose >= 8) level = 'elevated';
+    else if (dose >= 1.5) level = 'low';
+    if (level === null) {
+      if (radShownLevel !== null) {
+        radShownLevel = null;
+        dom.radBadge.hidden = true;
+      }
+      return;
+    }
+    const key = level + ':' + Math.round(dose);
+    if (key === radShownLevel) return;
+    radShownLevel = key;
+    dom.radBadge.hidden = false;
+    dom.radBadge.dataset.level = level;
+    dom.radValue.textContent = String(Math.round(dose));
+  }
+
   function updateFireEmitters(dt) {
     if (!fireSpawnPoints.length || !state.smoke || !state.glow) return;
     state.fireTimer = (state.fireTimer || 0) + dt;
@@ -5063,6 +5103,8 @@
     setInputEnabled(true);
     dom.report.hidden = true;
     dom.altimeter.hidden = true;
+    dom.radBadge.hidden = true;
+    radShownLevel = null;
     dom.flash.classList.remove('fire');
     dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click the city to strike · R to rebuild';
     setStatus('READY TO STRIKE', isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city', 'ready');
@@ -5250,6 +5292,7 @@
 
     for (const sys of activeParticleSystems) sys.update(dt);
     if (debrisSystem) debrisSystem.update(dt);
+    updateRadiationHUD();
 
     renderer.render(scene, camera);
   }
@@ -5349,6 +5392,7 @@
     set mirv(on) { setMirv(on); },
     get mirv() { return mirvEnabled; },
     get mirvCount() { return mirvVehicles.length; },
+    get radiationSources() { return radiationSources.length; },
     setCamera({ tx, ty, tz, distance, azimuth, pitch }) {
       if (tx !== undefined) cameraRig.target.x = tx;
       if (ty !== undefined) cameraRig.targetY = ty;
