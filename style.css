@@ -721,6 +721,11 @@ body {
   letter-spacing: -0.08em;
 }
 
+.report-count.casualties strong {
+  font-size: 18px;
+  color: #ff8a3a;
+}
+
 .rad-badge {
   position: fixed;
   z-index: 12;

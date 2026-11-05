@@ -301,6 +301,7 @@
     statusDetail: $('#statusDetail'),
     report: $('#report'),
     reportDestroyed: $('#reportDestroyed'),
+    reportCasualties: $('#reportCasualties'),
     radBadge: $('#radBadge'),
     radValue: $('#radValue'),
     hint: $('#hint'),
@@ -5209,8 +5210,23 @@
     dom.status.dataset.state = phase;
   }
 
+  // Casualty estimate: rough per-structure and per-landmark tolls that the
+  // report panel ticks toward as damage lands.
+  let casualtyShown = 0;
+  let casualtyLastShown = -1;
+  function casualtyTarget() {
+    return Math.round(
+      state.destroyed * 34 +
+      state.landmarksDestroyed * 850 +
+      state.bridgesDamaged * 420
+    );
+  }
+
   function showReport() {
     dom.reportDestroyed.textContent = '0';
+    casualtyShown = 0;
+    casualtyLastShown = -1;
+    dom.reportCasualties.textContent = '0';
     dom.report.hidden = false;
   }
 
@@ -5221,6 +5237,15 @@
       dom.reportDestroyed.textContent = state.destroyed.toLocaleString('en-US');
       if (state.phase === 'aftermath') {
         dom.statusDetail.textContent = aftermathSummary();
+      }
+    }
+    const target = casualtyTarget();
+    if (casualtyShown < target) {
+      casualtyShown = Math.min(target, casualtyShown + Math.max(1, (target - casualtyShown) * 0.09));
+      const shown = Math.round(casualtyShown);
+      if (shown !== casualtyLastShown) {
+        casualtyLastShown = shown;
+        dom.reportCasualties.textContent = shown.toLocaleString('en-US');
       }
     }
   }
