@@ -65,15 +65,38 @@ body {
   mix-blend-mode: screen;
 }
 
+/* Solid white core that whites out the whole viewport for a beat, then gives
+   way to the warm radial glow still animating on #flash itself. */
+#flash::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+}
+
 #flash.fire {
-  animation: detonation-flash 1.5s cubic-bezier(0.10, 0.72, 0.18, 1) forwards;
+  animation: detonation-flash 2.3s cubic-bezier(0.16, 0.84, 0.24, 1) forwards;
+}
+
+#flash.fire::before {
+  animation: flash-whiteout 2.3s linear forwards;
 }
 
 @keyframes detonation-flash {
   0% { opacity: 0; }
-  2% { opacity: 1; }
-  8% { opacity: 0.95; }
-  21% { opacity: 0.25; }
+  2.5% { opacity: 1; }
+  16% { opacity: 1; }
+  34% { opacity: 0.6; }
+  60% { opacity: 0.24; }
+  100% { opacity: 0; }
+}
+
+@keyframes flash-whiteout {
+  0% { opacity: 0; }
+  2.5% { opacity: 1; }
+  13% { opacity: 1; }
+  26% { opacity: 0; }
   100% { opacity: 0; }
 }
 
@@ -1032,6 +1055,10 @@ body[data-phase="aftermath"] #scene:active {
   }
 
   #flash.fire {
-    animation-duration: 0.4s;
+    animation-duration: 0.9s;
+  }
+
+  #flash.fire::before {
+    animation-duration: 0.9s;
   }
 }

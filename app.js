@@ -4046,8 +4046,8 @@
     for (let i = 0; i < capCount; i++) {
       const a = Math.random() * TAU;
       const spread = fireSize * (isMassive ? 0.15 + Math.random() * 0.85 : 0.25 + Math.random() * 2.5);
-      // Held back briefly so the fireball is unobstructed while it grows.
-      const delay = 0.75 + Math.random() * 2.2;
+      // Held back so the longer-lived fireball stays unobstructed while it grows.
+      const delay = 1.1 + Math.random() * 3.3;
       plume.spawn({
         x: x + Math.cos(a) * spread * 0.42,
         y: fx.hob + (Math.random() - 0.15) * fireSize * 0.9,
@@ -4676,32 +4676,34 @@
     const fireR = v.fireballRadius;
 
     // Fireball: grows more slowly so the white core reads as a fireball
-    // instead of a one-frame flash, then holds before it cools off.
+    // instead of a one-frame flash, then holds before it cools off. The fade
+    // windows run 50% long so the fireball lingers.
+    const hold = 1.5;
     const grow = 1 - Math.exp(-t * 4.2);
     const fireScale = Math.max(0.5, fireR * (0.22 + 0.96 * grow));
     v.shell.scale.setScalar(fireScale);
     v.shell.material.uniforms.uTime.value = t;
-    const shellFade = clamp(1 - (t - 1.15) / 2.2, 0, 1);
+    const shellFade = clamp(1 - (t - 1.15 * hold) / (2.2 * hold), 0, 1);
     v.shell.material.uniforms.uOpacity.value = 0.98 * shellFade;
     v.shell.visible = shellFade > 0.01;
 
     const coreGrow = 1 - Math.exp(-t * 5.4);
     v.core.scale.setScalar(Math.max(0.5, fireR * 0.94 * coreGrow));
-    const coreFade = clamp(1 - (t - 0.85) / 1.5, 0, 1);
+    const coreFade = clamp(1 - (t - 0.85 * hold) / (1.5 * hold), 0, 1);
     v.core.material.opacity = 0.9 * coreFade;
     v.core.visible = coreFade > 0.01;
 
     v.halo.scale.setScalar(Math.max(0.5, fireR * (0.3 + 1.14 * grow)));
-    const haloFade = clamp(1 - (t - 1.2) / 2.5, 0, 1);
+    const haloFade = clamp(1 - (t - 1.2 * hold) / (2.5 * hold), 0, 1);
     v.halo.material.opacity = 0.4 * haloFade;
     v.halo.visible = haloFade > 0.01;
 
     v.glow.scale.setScalar(Math.max(1, fireR * (1.6 + 1.9 * grow)));
-    const glowFade = clamp(1 - (t - 0.9) / 3.2, 0, 1);
+    const glowFade = clamp(1 - (t - 0.9 * hold) / (3.2 * hold), 0, 1);
     v.glowMat.opacity = 0.68 * glowFade;
     v.glow.visible = glowFade > 0.01;
 
-    v.light.intensity = 30 * Math.exp(-t * 2.6);
+    v.light.intensity = 30 * Math.exp(-t * (2.6 / hold));
     v.light.distance = Math.max(1500, fx.r5 * 1.4);
     v.light.visible = v.light.intensity > 0.05;
 
