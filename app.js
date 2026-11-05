@@ -306,6 +306,10 @@
   let elapsed = 0;
   let frameDt = 0;
   let timeScale = 1;
+  // Kill-cam: a temporary real-time multiplier that dips at detonation and
+  // eases back, independent of the user's timeScale so restoration is exact.
+  let killCam = 1;
+  let killCamT = -1;
   let rafId = 0;
   let resizeQueued = false;
 
@@ -3558,6 +3562,7 @@
 
     cameraRig.shakeSeed = Math.random() * 1000;
     cameraRig.shake = clamp(0.9 + Math.log10(weapon.yieldKt + 1) * 0.4, 1.1, 2.6);
+    killCamT = 0;
 
     const cloudRise = meteor
       ? clamp(fx.r5 * 0.5, 500, 14000)
@@ -5105,9 +5110,22 @@
     }
   }
 
+  function updateKillCam(rawDt) {
+    if (killCamT < 0) { killCam = 1; return; }
+    killCamT += rawDt;
+    const DIP = 0.5, HOLD = 1.0, RISE = 2.1;
+    const smooth = (t) => t * t * (3 - 2 * t);
+    if (killCamT < DIP) killCam = 1 + (0.16 - 1) * smooth(killCamT / DIP);
+    else if (killCamT < HOLD) killCam = 0.16;
+    else if (killCamT < RISE) killCam = 0.16 + (1 - 0.16) * smooth((killCamT - HOLD) / (RISE - HOLD));
+    else { killCam = 1; killCamT = -1; }
+  }
+
   function animate() {
     rafId = requestAnimationFrame(animate);
-    const dt = Math.min(clock.getDelta(), 0.05) * timeScale;
+    const raw = Math.min(clock.getDelta(), 0.05);
+    updateKillCam(raw);
+    const dt = raw * timeScale * killCam;
     elapsed += dt;
     frameDt = dt;
 
@@ -5233,6 +5251,7 @@
     inAnyLand,
     toggleShadows(on) { renderer.shadowMap.enabled = !!on; scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => m.needsUpdate = true); } }); },
     setTimeScale(value) { timeScale = clamp(value, 0.1, 20); },
+    get killCamFactor() { return killCam; },
     setCamera({ tx, ty, tz, distance, azimuth, pitch }) {
       if (tx !== undefined) cameraRig.target.x = tx;
       if (ty !== undefined) cameraRig.targetY = ty;
