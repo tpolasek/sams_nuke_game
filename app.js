@@ -693,7 +693,7 @@
           cz + (rng() - 0.5) * spread
         );
         cloudGroup.add(sprite);
-        cloudPuffs.push({ sprite, drift });
+        cloudPuffs.push({ sprite, drift, hx: sprite.position.x, hz: sprite.position.z, ox: 0, oz: 0 });
       }
     }
   }
@@ -701,13 +701,15 @@
   function updateClouds(dt) {
     if (!cloudPuffs.length) return;
     for (const c of cloudPuffs) {
-      const s = c.sprite;
-      s.position.x += (c.drift + wind.x * 2.2) * dt;
-      s.position.z += wind.z * 2.2 * dt;
-      if (s.position.x > 13500) s.position.x -= 27000;
-      if (s.position.x < -13500) s.position.x += 27000;
-      if (s.position.z > 13500) s.position.z -= 27000;
-      if (s.position.z < -13500) s.position.z += 27000;
+      // Drift is accumulated as an offset from each cloud's seeded home and
+      // wrapped within ±12 km of it — the seeded field spans beyond ±13.5 km,
+      // so an absolute wrap would teleport whole banks across the sky on the
+      // first frame.
+      c.ox += (c.drift + wind.x * 2.2) * dt;
+      c.oz += wind.z * 2.2 * dt;
+      if (c.ox > 12000) c.ox -= 24000; else if (c.ox < -12000) c.ox += 24000;
+      if (c.oz > 12000) c.oz -= 24000; else if (c.oz < -12000) c.oz += 24000;
+      c.sprite.position.set(c.hx + c.ox, c.sprite.position.y, c.hz + c.oz);
     }
   }
 
