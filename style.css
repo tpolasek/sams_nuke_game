@@ -266,40 +266,61 @@ body {
   cursor: wait;
 }
 
-.mirv-btn {
-  appearance: none;
+.mirv-row {
+  display: grid;
+  grid-template-columns: auto repeat(6, 1fr);
+  align-items: stretch;
+  gap: 3px;
   width: 100%;
+  margin-bottom: 10px;
+  padding: 4px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: rgba(11, 18, 22, 0.56);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.mirv-label {
+  align-self: center;
+  padding: 0 8px 0 6px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.13em;
+}
+
+.mirv-opt {
+  appearance: none;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: var(--dim);
-  min-height: 40px;
-  margin-bottom: 10px;
-  padding: 0 11px;
+  min-height: 36px;
+  padding: 0;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.12em;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
-.mirv-btn:hover {
+.mirv-opt:hover {
   color: var(--ink);
 }
 
-.mirv-btn:focus-visible {
+.mirv-opt:focus-visible {
   outline: 2px solid var(--hazard);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
-.mirv-btn[aria-pressed="true"] {
+.mirv-opt[aria-pressed="true"] {
   background: rgba(255, 196, 91, 0.16);
   color: var(--hazard);
   box-shadow: inset 0 0 0 1px rgba(255, 196, 91, 0.42);
 }
 
-.mirv-btn:disabled {
+.mirv-opt:disabled {
   opacity: 0.45;
   cursor: wait;
 }

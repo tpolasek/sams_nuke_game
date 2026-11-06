@@ -242,6 +242,7 @@
     totalStructures: 0,
     // One queue per detonation so MIRV follow-ups can overlap the first blast.
     pendingQueues: [],
+    explosionVisuals: [],
     collapsers: [],
     landCollapsers: [],
     fallingBridges: [],
@@ -275,7 +276,7 @@
     specOrigin: $('#specOrigin'),
     modeNuke: $('#modeNuke'),
     modeMeteor: $('#modeMeteor'),
-    mirvBtn: $('#mirvBtn'),
+    mirvOpts: [...document.querySelectorAll('.mirv-opt')],
     status: $('#status'),
     statusLabel: $('#statusLabel'),
     statusDetail: $('#statusDetail'),
@@ -2822,13 +2823,16 @@
   let alertTimer = 0;
 
   // MIRV volley: extra reentry vehicles released with the primary weapon,
-  // each on its own staggered fall path to a spread target.
-  let mirvEnabled = false;
+  // each on its own staggered fall path to a spread target. The selector
+  // sets the total warhead count (1 = single strike).
+  let mirvCount = 1;
   let mirvVehicles = [];
 
-  function setMirv(on) {
-    mirvEnabled = !!on;
-    dom.mirvBtn.setAttribute('aria-pressed', String(mirvEnabled));
+  function setMirv(n) {
+    mirvCount = clamp(Math.round(n) || 1, 1, 6);
+    for (const btn of dom.mirvOpts) {
+      btn.setAttribute('aria-pressed', String(Number(btn.dataset.count) === mirvCount));
+    }
   }
 
   function armStrike(x, z, onLand) {
@@ -2912,7 +2916,7 @@
     dom.status.dataset.state = 'falling';
     dom.statusLabel.textContent = meteor
       ? 'IMPACTOR INBOUND'
-      : (mirvEnabled ? 'MIRV RELEASED' : 'WEAPON RELEASED');
+      : (mirvCount > 1 ? 'MIRV RELEASED' : 'WEAPON RELEASED');
     contrailSystem = meteor
       ? null
       : createParticleSystem(LOW_POWER ? 260 : 520, smokeTexture, THREE.NormalBlending, 3);
@@ -2972,10 +2976,12 @@
 
   function spawnMirvVehicles(x, z, startY, fx, primaryDuration) {
     mirvVehicles = [];
-    if (!mirvEnabled || isMeteor(state.weapon)) return;
+    const extras = mirvCount - 1;
+    if (extras < 1 || isMeteor(state.weapon)) return;
     const spread = clamp(fx.r5 * 0.85, 700, 3800);
-    for (let i = 0; i < 2; i++) {
-      const bearing = Math.random() * TAU;
+    for (let i = 0; i < extras; i++) {
+      // Fan the RVs around the primary so a big volley doesn't clump.
+      const bearing = (i / extras) * TAU + Math.random() * 1.2;
       let dist = spread * (0.75 + Math.random() * 0.5);
       let ex = x + Math.sin(bearing) * dist;
       let ez = z + Math.cos(bearing) * dist;
@@ -2991,7 +2997,7 @@
       mirvRoot.add(rv.light);
       mirvVehicles.push({
         start: elapsed,
-        duration: primaryDuration + 0.9 + i * 0.9,
+        duration: primaryDuration + 0.5 + i * 0.5,
         startY,
         endY: fx.hob,
         startX: ex,
@@ -3100,7 +3106,7 @@
     state.plume = null;
     state.glow = null;
     state.debris = null;
-    state.explosionVisuals = null;
+    state.explosionVisuals = [];
     fireSpawnPoints = [];
     state.fireTimer = 0;
     if (effectsRoot) {
@@ -3680,7 +3686,7 @@
     state.plume = createParticleSystem(LOW_POWER ? 480 : 1100, smokeTexture, THREE.NormalBlending, 4);
     state.glow = createParticleSystem(glowCount, glowTexture, THREE.AdditiveBlending, 6);
     debrisSystem = makeDebrisSystem(LOW_POWER ? 420 : 760);
-    state.explosionVisuals = createExplosionVisuals(x, z, fx, meteor);
+    state.explosionVisuals.push(createExplosionVisuals(x, z, fx, meteor));
 
     if (meteor) spawnImpactParticles(x, z, fx, state.targetOnLand);
     else spawnExplosionParticles(x, z, fx, state.targetOnLand);
@@ -4360,10 +4366,26 @@
     }
   }
 
+  // Several blasts can be live at once (MIRV volley), so visuals are kept as
+  // a list and each fades on its own clock.
   function updateExplosionVisuals() {
-    const v = state.explosionVisuals;
-    if (!v) return;
-    const t = elapsed - v.start;
+    const list = state.explosionVisuals;
+    if (!list || !list.length) return;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const v = list[i];
+      const t = elapsed - v.start;
+      updateBlastVisuals(v, t);
+      // All transient effects are fully faded by ~6.2 s; retire the fireball
+      // group and leave only the static aftermath (scorch, crater) behind.
+      if (t >= 6.5) {
+        effectsRoot.remove(v.group);
+        disposeGroup(v.group);
+        list.splice(i, 1);
+      }
+    }
+  }
+
+  function updateBlastVisuals(v, t) {
     const fx = v.fx;
     const fireR = v.fireballRadius;
 
@@ -5182,7 +5204,7 @@
     dom.meteorSelect.disabled = !enabled;
     dom.modeNuke.disabled = !enabled;
     dom.modeMeteor.disabled = !enabled;
-    dom.mirvBtn.disabled = !enabled;
+    for (const btn of dom.mirvOpts) btn.disabled = !enabled;
     dom.cityNyc.disabled = !enabled;
     dom.cityDubai.disabled = !enabled;
   }
@@ -5245,7 +5267,9 @@
     dom.modeNuke.addEventListener('click', () => setMode('nuke'));
     dom.modeMeteor.addEventListener('click', () => setMode('meteor'));
 
-    dom.mirvBtn.addEventListener('click', () => setMirv(!mirvEnabled));
+    for (const btn of dom.mirvOpts) {
+      btn.addEventListener('click', () => setMirv(Number(btn.dataset.count)));
+    }
 
     dom.resetBtn.addEventListener('click', () => {
       resetGame();
@@ -5487,9 +5511,9 @@
     toggleShadows(on) { renderer.shadowMap.enabled = !!on; scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => m.needsUpdate = true); } }); },
     setTimeScale(value) { timeScale = clamp(value, 0.1, 20); },
     get killCamFactor() { return killCam; },
-    set mirv(on) { setMirv(on); },
-    get mirv() { return mirvEnabled; },
-    get mirvCount() { return mirvVehicles.length; },
+    set mirv(n) { setMirv(n); },
+    get mirv() { return mirvCount; },
+    get mirvInFlight() { return mirvVehicles.length; },
     get radiationSources() { return radiationSources.length; },
     get convoyCount() { return convoys.length; },
     get contrailAlive() {
