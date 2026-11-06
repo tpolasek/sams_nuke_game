@@ -83,6 +83,26 @@ body {
   animation: flash-whiteout 2.3s linear forwards;
 }
 
+/* Blackhole formation: a violet dimming pulse instead of a white detonation
+   flash — the sky collapses rather than ignites. */
+#flash.void {
+  mix-blend-mode: normal;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(46, 16, 74, 0.72) 0%, rgba(20, 8, 38, 0.62) 46%, rgba(5, 2, 12, 0.92) 100%);
+  animation: void-pulse 1.8s ease-out forwards;
+}
+
+#flash.void::before {
+  animation: none;
+}
+
+@keyframes void-pulse {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  42% { opacity: 0.82; }
+  100% { opacity: 0; }
+}
+
 @keyframes detonation-flash {
   0% { opacity: 0; }
   2.5% { opacity: 1; }
@@ -218,7 +238,7 @@ body {
 
 .mode-switch {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   width: 100%;
   margin-bottom: 10px;
@@ -991,7 +1011,7 @@ body[data-phase="aftermath"] #scene:active {
     min-height: 42px;
     padding: 0 8px;
     font-size: 11px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.05em;
   }
 
   .chrome-btn {

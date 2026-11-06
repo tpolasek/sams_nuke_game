@@ -48,6 +48,14 @@
     { id: 'chicxulub', name: 'Chicxulub Echo', yieldKt: 100000, label: '100 Mt', kind: 'meteor', core: 'stone', img: 'assets/chicxulub.webp', flag: 'space', origin: 'ASTEROID BELT', weightLb: 5110000000, heightFt: 376, widthFt: 376, year: '66M YRS AGO' }
   ];
 
+  // Singularities don't blast — they pull. `pull` is the abduction radius in
+  // metres; everything inside gets ripped off the ground and flown into the
+  // horizon under single-body gravity.
+  const BLACKHOLES = [
+    { id: 'gargantua', name: 'Gargantua', label: 'SINGULARITY', kind: 'blackhole', img: 'assets/blackhole.jpg', flag: 'space', origin: 'INTERSTELLAR', weightLb: 7400000000, heightFt: 4720, widthFt: 4720, year: 'ETERNAL', pull: 2600 },
+    { id: 'cygnus', name: 'Cygnus X-1', label: 'SINGULARITY', kind: 'blackhole', img: 'assets/blackhole.jpg', flag: 'space', origin: 'X-RAY BINARY', weightLb: 92000000000, heightFt: 205000, widthFt: 205000, year: 'ETERNAL', pull: 3600 }
+  ];
+
   const FLAGS = {
     us: '<svg viewBox="0 0 30 20" xmlns="http://www.w3.org/2000/svg"><rect width="30" height="20" fill="#f2f2f2"/><g fill="#c8313e"><rect y="0" width="30" height="2.2"/><rect y="4.4" width="30" height="2.2"/><rect y="8.9" width="30" height="2.2"/><rect y="13.3" width="30" height="2.2"/><rect y="17.8" width="30" height="2.2"/></g><rect width="12.5" height="9.5" fill="#2b3a67"/><g fill="#fff"><circle cx="2.4" cy="2.4" r="0.85"/><circle cx="6.2" cy="2.4" r="0.85"/><circle cx="10" cy="2.4" r="0.85"/><circle cx="4.3" cy="4.8" r="0.85"/><circle cx="8.1" cy="4.8" r="0.85"/><circle cx="2.4" cy="7.1" r="0.85"/><circle cx="6.2" cy="7.1" r="0.85"/><circle cx="10" cy="7.1" r="0.85"/></g></svg>',
     ussr: '<svg viewBox="0 0 30 20" xmlns="http://www.w3.org/2000/svg"><rect width="30" height="20" fill="#c8313e"/><path d="M6 3.2 L7 5.6 L9.5 5.6 L7.6 7.2 L8.3 9.6 L6 8.2 L3.7 9.6 L4.4 7.2 L2.5 5.6 L5 5.6 Z" fill="#f5c445"/><path d="M13.5 12.5 A5.4 5.4 0 1 1 20.5 5.2 L18.9 6.3 A3.6 3.6 0 1 0 14.9 11.2 Z" fill="#f5c445"/><rect x="13.2" y="4.4" width="1.6" height="9.4" rx="0.8" transform="rotate(18 14 9)" fill="#f5c445"/></svg>',
@@ -56,6 +64,25 @@
   };
 
   const isMeteor = (weapon) => weapon.kind === 'meteor';
+  const isBlackhole = (weapon) => weapon.kind === 'blackhole';
+
+  const BLACKHOLE_ALTITUDE = 4000;
+  const BLACKHOLE_HORIZON = 260;
+
+  function effectsForBlackhole(weapon) {
+    const pull = weapon.pull;
+    // r20/r5 aliases keep the shared tree/bridge damage paths working.
+    return {
+      hob: BLACKHOLE_ALTITUDE,
+      horizon: BLACKHOLE_HORIZON,
+      pull,
+      fire: pull * 1.55,
+      r20: pull * 0.8,
+      r5: pull * 1.55,
+      thermal: pull * 1.8,
+      r1: pull * 2.2
+    };
+  }
 
   function effectsFor(kt) {
     const scale = Math.cbrt(kt / 15);
@@ -84,13 +111,15 @@
   }
 
   function effectsForWeapon(weapon) {
+    if (isBlackhole(weapon)) return effectsForBlackhole(weapon);
     return isMeteor(weapon) ? effectsForImpact(weapon.yieldKt) : effectsFor(weapon.yieldKt);
   }
 
   let mode = 'nuke';
   const modeWeapons = {
     nuke: NUKES.find((n) => n.id === 'littleboy'),
-    meteor: METEORS.find((m) => m.id === 'apophis')
+    meteor: METEORS.find((m) => m.id === 'apophis'),
+    blackhole: BLACKHOLES.find((b) => b.id === 'gargantua')
   };
   let selectedWeapon = modeWeapons[mode];
   let selectedEffects = effectsForWeapon(selectedWeapon);
@@ -245,6 +274,8 @@
     explosionVisuals: [],
     collapsers: [],
     landCollapsers: [],
+    abductees: [],
+    landAbductees: [],
     fallingBridges: [],
     activeTimers: [],
     resetting: false
@@ -263,6 +294,7 @@
     flash: $('#flash'),
     select: $('#nukeSelect'),
     meteorSelect: $('#meteorSelect'),
+    blackholeSelect: $('#blackholeSelect'),
     weaponLabel: $('#weaponLabel'),
     weaponImage: $('#weaponImage'),
     weaponFlag: $('#weaponFlag'),
@@ -276,7 +308,9 @@
     specOrigin: $('#specOrigin'),
     modeNuke: $('#modeNuke'),
     modeMeteor: $('#modeMeteor'),
+    modeBlackhole: $('#modeBlackhole'),
     mirvOpts: [...document.querySelectorAll('.mirv-opt')],
+    mirvRow: document.querySelector('.mirv-row'),
     status: $('#status'),
     statusLabel: $('#statusLabel'),
     statusDetail: $('#statusDetail'),
@@ -299,6 +333,7 @@
   // Renderer, scene, lights, camera
   // ---------------------------------------------------------------------------
   let renderer, scene, camera, sunLight, hemisphere, water, waterUniforms;  let skyMesh = null;
+  let skyUniforms = null;
   let terrainMesh;
   let cityRoot = null;
   let effectsRoot = null;
@@ -366,6 +401,7 @@
 
     skyMesh = makeSky();
     scene.add(skyMesh);
+    skyUniforms = skyMesh.material.uniforms;
 
     hemisphere = new THREE.HemisphereLight(0xbfd8e8, 0x5a5445, LOW_POWER ? 1.55 : 1.75);
     scene.add(hemisphere);
@@ -398,7 +434,8 @@
       uDeep: { value: new THREE.Color((CITY.water || {}).deep ?? 0x143c4c) },
       uShallow: { value: new THREE.Color((CITY.water || {}).shallow ?? 0x2a6072) },
       uSky: { value: new THREE.Color((CITY.water || {}).sky ?? 0xb4cfda) },
-      uSun: { value: new THREE.Color(0xffe5ac) }
+      uSun: { value: new THREE.Color(0xffe5ac) },
+      uStorm: { value: 0 }
     };
     water = makeWater();
     scene.add(water);
@@ -436,7 +473,8 @@
         uTop: { value: new THREE.Color(0x3d77b0) },
         uMid: { value: new THREE.Color(0x91b9d4) },
         uHorizon: { value: new THREE.Color(0xd8e4e8) },
-        uSunDir: { value: new THREE.Vector3(-0.44, 0.55, 0.28).normalize() }
+        uSunDir: { value: new THREE.Vector3(-0.44, 0.55, 0.28).normalize() },
+        uDarken: { value: 0 }
       },
       vertexShader: `
         varying vec3 vDir;
@@ -452,6 +490,7 @@
         uniform vec3 uMid;
         uniform vec3 uHorizon;
         uniform vec3 uSunDir;
+        uniform float uDarken;
         void main() {
           float h = clamp(vDir.y * 0.84 + 0.18, 0.0, 1.0);
           vec3 color = mix(uHorizon, uMid, smoothstep(0.0, 0.46, h));
@@ -463,6 +502,7 @@
           float horizonHaze = exp(-abs(vDir.y) * 10.0) * 0.08;
           color += vec3(0.85, 0.82, 0.72) * horizonHaze;
           gl_FragColor = vec4(color, 1.0);
+          gl_FragColor.rgb *= (1.0 - uDarken * 0.55);
         }
       `
     });
@@ -524,8 +564,12 @@
         uniform vec2 uCurveCenter;
         uniform float uCurveStrength;
         uniform float uCurveMax;
+        uniform float uTime;
+        uniform float uStorm;
         void main() {
           vec4 world = modelMatrix * vec4(position, 1.0);
+          // Blackhole mood: real geometric swell, so storm waves gain height.
+          world.y += (sin(world.x * 0.0045 + uTime * 1.35) + cos(world.z * 0.0038 - uTime * 1.05)) * 26.0 * uStorm;
           vec2 cDelta = world.xz - uCurveCenter;
           world.y -= min(dot(cDelta, cDelta) * uCurveStrength, uCurveMax);
           vWorld = world.xyz;
@@ -535,6 +579,7 @@
       fragmentShader: `
         varying vec3 vWorld;
         uniform float uTime;
+        uniform float uStorm;
         uniform vec4 uCraters[${MAX_CRATERS}];
         uniform vec3 uDeep;
         uniform vec3 uShallow;
@@ -547,29 +592,30 @@
           float t = uTime;
           // Three directional waves; the analytic derivatives shade the surface
           // without extra texture fetches or vertex work.
-          float ph1 = p.x * 0.006 + p.y * 0.0025 + t * 0.62;
-          float ph2 = p.x * -0.014 + p.y * 0.010 - t * 1.08;
-          float ph3 = p.x * 0.023 + p.y * -0.016 + t * 1.7;
-          float ph4 = p.x * 0.05 + p.y * -0.041 + t * 2.6;
+          float k = 1.0 + uStorm * 2.2;
+          float ph1 = p.x * 0.006 + p.y * 0.0025 + t * 0.62 * k;
+          float ph2 = p.x * -0.014 + p.y * 0.010 - t * 1.08 * k;
+          float ph3 = p.x * 0.023 + p.y * -0.016 + t * 1.7 * k;
+          float ph4 = p.x * 0.05 + p.y * -0.041 + t * 2.6 * k;
           float s1 = sin(ph1); float c1 = cos(ph1);
           float s2 = sin(ph2); float c2 = cos(ph2);
           float s3 = sin(ph3); float c3 = cos(ph3);
           float s4 = sin(ph4); float c4 = cos(ph4);
-          float h = s1 * 0.9 + s2 * 0.5 + s3 * 0.25 + s4 * 0.14;
-          float dhx = c1 * 0.0054 + c2 * -0.0070 + c3 * 0.0058 + c4 * 0.0070;
-          float dhz = c1 * 0.00225 + c2 * 0.0050 + c3 * -0.0040 + c4 * -0.0057;
+          float h = (s1 * 0.9 + s2 * 0.5 + s3 * 0.25 + s4 * 0.14) * k;
+          float dhx = (c1 * 0.0054 + c2 * -0.0070 + c3 * 0.0058 + c4 * 0.0070) * k;
+          float dhz = (c1 * 0.00225 + c2 * 0.0050 + c3 * -0.0040 + c4 * -0.0057) * k;
           vec3 n = normalize(vec3(-dhx * 13.0, 1.0, -dhz * 13.0));
           vec3 view = normalize(cameraPosition - vWorld);
           float fres = pow(1.0 - clamp(dot(view, n), 0.0, 1.0), 2.3);
-          vec3 color = mix(uDeep, uShallow, 0.34 + h * 0.055);
-          color = mix(color, uSky, fres * 0.63);
+          vec3 color = mix(uDeep, uShallow, 0.34 + (h / k) * 0.055);
+          color = mix(color, uSky, fres * (0.63 + uStorm * 0.15));
           vec3 sunDir = vec3(-0.580, 0.726, 0.369);
           vec3 refl = reflect(-view, n);
           float spec = pow(max(dot(refl, sunDir), 0.0), 60.0);
           color += uSun * spec * 0.5;
           // Sparse whitecaps on the tallest combined crests.
-          float crest = smoothstep(1.05, 1.45, h);
-          color = mix(color, vec3(0.92, 0.97, 0.98), crest * 0.1);
+          float crest = smoothstep(1.05 - uStorm * 0.45, 1.45 - uStorm * 0.45, h);
+          color = mix(color, vec3(0.92, 0.97, 0.98), crest * (0.1 + uStorm * 0.22));
           float distanceToCam = length(cameraPosition - vWorld);
           float haze = 1.0 - exp(-pow(distanceToCam * 0.000012, 1.8));
           color = mix(color, vec3(0.55, 0.67, 0.74), haze * 0.72);
@@ -2439,6 +2485,18 @@
   let bombFall = null;
   let bombLight = null;
 
+  // BLACKHOLE mode runtime: the singularity mesh group, its shared shader
+  // uniforms, the accretion particle system, and the free-fall state (mu in
+  // m³/s², tuned so the pull edge reaches the horizon in ~6.5 s).
+  let blackholeGroup = null;
+  let blackholeUniforms = null;
+  let blackholeDiskMat = null;
+  let blackholeHaloMat = null;
+  let blackholePhotonRing = null;
+  let blackholeLight = null;
+  let blackholeAccretion = null;
+  let blackholeState = null;
+
   function makeCircleGeometry(segments = 128) {
     const pts = [];
     for (let i = 0; i <= segments; i++) {
@@ -2671,6 +2729,225 @@
     group.add(smoke);
   }
 
+  // Additive ring that hugs the shadow: transparent over the sphere itself,
+  // white-hot band just outside its rim (the lensed photon ring of the photo).
+  function makeBlackholeHaloTexture() {
+    const size = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.3, 'rgba(0,0,0,0)');
+    g.addColorStop(0.36, 'rgba(255, 246, 216, 0.92)');
+    g.addColorStop(0.42, 'rgba(255, 214, 140, 0.62)');
+    g.addColorStop(0.56, 'rgba(255, 154, 74, 0.18)');
+    g.addColorStop(0.78, 'rgba(255, 140, 60, 0.05)');
+    g.addColorStop(1, 'rgba(255, 140, 60, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  function buildBlackholeObject(x, z) {
+    const fx = state.effects;
+    const horizon = fx.horizon;
+    const pull = fx.pull;
+    const group = new THREE.Group();
+    group.position.set(x, BLACKHOLE_ALTITUDE, z);
+    group.rotation.z = deg(12);
+    group.scale.setScalar(0.001);
+
+    group.add(new THREE.Mesh(
+      new THREE.SphereGeometry(horizon, 48, 32),
+      new THREE.MeshBasicMaterial({ color: 0x000000 })
+    ));
+
+    // Shared uniforms drive both the swirl disk and the photon ring, so one
+    // uTime write per frame animates the whole singularity.
+    blackholeUniforms = {
+      uTime: { value: 0 },
+      uPulse: { value: 1 },
+      uInner: { value: (horizon * 1.28) / (pull * 1.0) },
+      uOpacity: { value: 1 }
+    };
+
+    blackholeDiskMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: blackholeUniforms,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uInner;
+        uniform float uOpacity;
+        void main() {
+          vec2 q = vUv - 0.5;
+          float r = length(q) * 2.0;
+          float rn = clamp((r - uInner) / (1.0 - uInner), 0.0, 1.0);
+          // Differential rotation: the inner band laps the outer edge.
+          float angle = atan(q.y, q.x) + uTime * (2.6 / max(r, 0.16));
+          float w = sin(rn * 34.0 - uTime * 1.6 + sin(angle * 2.0 + rn * 9.0) * 0.85) * 0.5 + 0.5;
+          float streak = sin(angle * 6.0 + rn * 19.0) * 0.5 + sin(angle * 17.0 - rn * 33.0) * 0.25;
+          w *= 0.72 + streak * 0.38;
+          vec3 col = mix(vec3(1.0, 0.965, 0.85), vec3(1.0, 0.77, 0.36), smoothstep(0.0, 0.34, rn));
+          col = mix(col, vec3(1.0, 0.48, 0.14), smoothstep(0.3, 0.68, rn));
+          col = mix(col, vec3(0.42, 0.1, 0.04), smoothstep(0.62, 1.0, rn));
+          col *= 1.0 + (1.0 - rn) * 1.4;
+          float rim = smoothstep(0.0, 0.16, rn) * (1.0 - smoothstep(0.72, 1.0, rn));
+          float alpha = uOpacity * rim * (0.42 + 0.58 * w) * (1.2 - rn * 0.75);
+          if (alpha < 0.012) discard;
+          gl_FragColor = vec4(col * (0.85 + w * 0.9), alpha);
+        }
+      `
+    });
+    const diskGeo = new THREE.RingGeometry(horizon * 1.28, pull, 128, 8);
+    const disk = new THREE.Mesh(diskGeo, blackholeDiskMat);
+    disk.rotation.x = -Math.PI / 2;
+    disk.renderOrder = 6;
+    group.add(disk);
+    // Vertical twin, seen edge-on: reads as the lensed arc folded over the shadow.
+    const arc = new THREE.Mesh(diskGeo, blackholeDiskMat);
+    arc.rotation.y = Math.PI / 2;
+    arc.scale.setScalar(0.55);
+    arc.renderOrder = 6;
+    group.add(arc);
+
+    const ringMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: blackholeUniforms,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform float uPulse;
+        void main() {
+          float r = length(vUv - 0.5) * 2.0;
+          float glow = pow(1.0 - clamp((r - 0.65) / 0.35, 0.0, 1.0), 2.2);
+          vec3 col = mix(vec3(1.0, 0.84, 0.5), vec3(1.0, 0.99, 0.94), glow);
+          gl_FragColor = vec4(col, glow * uPulse);
+        }
+      `
+    });
+    blackholePhotonRing = new THREE.Mesh(new THREE.RingGeometry(horizon * 1.06, horizon * 1.62, 64), ringMat);
+    blackholePhotonRing.renderOrder = 7;
+    group.add(blackholePhotonRing);
+
+    blackholeHaloMat = new THREE.SpriteMaterial({
+      map: makeBlackholeHaloTexture(), color: 0xffffff, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+    });
+    const halo = new THREE.Sprite(blackholeHaloMat);
+    halo.scale.set(horizon * 5.6, horizon * 5.6, 1);
+    halo.renderOrder = 7;
+    group.add(halo);
+
+    const glowNear = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0xff8a3a, transparent: true, opacity: 0.42,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    glowNear.scale.set(pull * 1.5, pull * 1.5, 1);
+    glowNear.renderOrder = 6;
+    group.add(glowNear);
+    const glowFar = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0xff8a3a, transparent: true, opacity: 0.22,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    glowFar.scale.set(pull * 2.6, pull * 2.6, 1);
+    glowFar.renderOrder = 6;
+    group.add(glowFar);
+
+    // Dim the sky locally behind the disk.
+    const dark = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: smokeTexture, color: 0x000000, transparent: true, opacity: 0.45, depthWrite: false
+    }));
+    dark.scale.set(pull * 2.4, pull * 2.4, 1);
+    dark.renderOrder = 5;
+    group.add(dark);
+
+    blackholeLight = new THREE.PointLight(0xffa040, 0, 20000, 1.6);
+    group.add(blackholeLight);
+
+    blackholeAccretion = createParticleSystem(LOW_POWER ? 400 : 900, glowTexture, THREE.AdditiveBlending, 7);
+
+    effectsRoot.add(group);
+    return group;
+  }
+
+  // Per-frame singularity life: shader time, halo pulse, billboarded photon
+  // ring, light fade, accretion infall, and the storm/darkness mood ramps.
+  function updateBlackhole() {
+    const bh = blackholeState;
+    if (!bh || !bh.active || !blackholeGroup) return;
+    const fx = state.effects;
+    const horizon = fx.horizon;
+    blackholeUniforms.uTime.value = elapsed;
+    blackholeUniforms.uPulse.value = 0.78 + 0.22 * Math.sin(elapsed * 3.6);
+    blackholeHaloMat.opacity = 0.75 + 0.2 * Math.sin(elapsed * 2.3);
+    blackholePhotonRing.lookAt(camera.position);
+    const mood = clamp((elapsed - bh.start) / 3, 0, 1);
+    if (waterUniforms) waterUniforms.uStorm.value = mood;
+    if (skyUniforms) skyUniforms.uDarken.value = mood * 0.5;
+    blackholeLight.intensity = 12 * clamp((elapsed - bh.start) / bh.spawnDur, 0, 1)
+      * (0.92 + 0.08 * Math.sin(elapsed * 7.1));
+
+    if (blackholeAccretion) {
+      const n = LOW_POWER ? 2 : 4;
+      for (let i = 0; i < n; i++) {
+        const ang = Math.random() * TAU;
+        const r0 = horizon * (1.7 + Math.random() * 8.2);
+        const px = bh.x + Math.cos(ang) * r0;
+        const pz = bh.z + Math.sin(ang) * r0;
+        const py = bh.y + (Math.random() - 0.5) * horizon * 0.5;
+        const orbital = Math.sqrt(bh.mu / r0) * 0.5;
+        const inward = 160 + Math.random() * 260;
+        blackholeAccretion.spawn({
+          x: px, y: py, z: pz,
+          vx: -Math.sin(ang) * orbital + ((bh.x - px) / r0) * inward,
+          vy: (bh.y - py) * 0.5,
+          vz: Math.cos(ang) * orbital + ((bh.z - pz) / r0) * inward,
+          size0: 26 + Math.random() * 34,
+          size1: 8 + Math.random() * 14,
+          life: 1.1 + Math.random() * 1.3,
+          alpha: 0.5 + Math.random() * 0.35,
+          drag: 0.06,
+          color: Math.random() > 0.5 ? 0xfff6d8 : 0xffc45b,
+          colorEnd: 0xff7a24
+        });
+      }
+    }
+  }
+
+  function updateBlackholeSpawn() {
+    const bh = blackholeState;
+    if (!bh || !blackholeGroup) return;
+    const t = clamp((elapsed - bh.start) / bh.spawnDur, 0, 1);
+    blackholeGroup.scale.setScalar(Math.max(0.001, easeOutCubic(t)));
+    if (t >= 1 && !bh.formed) {
+      bh.formed = true;
+      detonateBlackhole(bh.x, bh.z);
+    }
+  }
+
   function createBombObject(x, y, z, opts = {}) {
     const solo = !!opts.solo;
     if (!solo) bombRoot.clear();
@@ -2844,10 +3121,12 @@
     state.phase = 'alert';
     document.body.dataset.phase = 'alert';
     setInputEnabled(false);
-    setStatus('AIR RAID ALERT', 'DETONATION IN 5.0s', 'falling');
-    dom.hintText.textContent = isMeteor(selectedWeapon)
-      ? 'Impact imminent — brace for impact'
-      : 'Airburst imminent — brace for shockwave';
+    setStatus('AIR RAID ALERT', `${isBlackhole(selectedWeapon) ? 'SINGULARITY' : 'DETONATION'} IN 5.0s`, 'falling');
+    dom.hintText.textContent = isBlackhole(selectedWeapon)
+      ? 'Event horizon forming — brace'
+      : isMeteor(selectedWeapon)
+        ? 'Impact imminent — brace for impact'
+        : 'Airburst imminent — brace for shockwave';
     showAlertX(x, z);
     playSiren();
   }
@@ -2876,7 +3155,7 @@
   function updateAlert() {
     if (!alertPending) return;
     const remain = Math.max(0, (alertEnd - performance.now()) / 1000);
-    dom.statusDetail.textContent = `DETONATION IN ${remain.toFixed(1)}s`;
+    dom.statusDetail.textContent = `${isBlackhole(selectedWeapon) ? 'SINGULARITY IN' : 'DETONATION IN'} ${remain.toFixed(1)}s`;
     if (alertX) {
       alertX.mat.opacity = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(elapsed * 9));
     }
@@ -2892,6 +3171,7 @@
     ensureAudio();
     const weapon = selectedWeapon;
     const meteor = isMeteor(weapon);
+    const blackhole = isBlackhole(weapon);
     const fx = effectsForWeapon(weapon);
     buzz(meteor ? 40 : 60);
     state.phase = 'falling';
@@ -2905,6 +3185,8 @@
     state.pendingQueues = [];
     state.collapsers = [];
     state.landCollapsers = [];
+    state.abductees = [];
+    state.landAbductees = [];
     state.fallingBridges = [];
     state.activeTimers = [];
     state.blastStart = 0;
@@ -2914,9 +3196,33 @@
     setInputEnabled(false);
     document.body.dataset.phase = 'falling';
     dom.status.dataset.state = 'falling';
-    dom.statusLabel.textContent = meteor
-      ? 'IMPACTOR INBOUND'
-      : (mirvCount > 1 ? 'MIRV RELEASED' : 'WEAPON RELEASED');
+    dom.statusLabel.textContent = blackhole
+      ? 'SINGULARITY FORMING'
+      : meteor
+        ? 'IMPACTOR INBOUND'
+        : (mirvCount > 1 ? 'MIRV RELEASED' : 'WEAPON RELEASED');
+    if (blackhole) {
+      dom.statusDetail.textContent = 'EVENT HORIZON OPENING';
+      showTargetMarker(x, z, fx);
+      blackholeGroup = buildBlackholeObject(x, z);
+      // mu = 3.0e9: free-fall from the pull edge (r0 ≈ 4700 m) takes
+      // t = (π/2)·√(r0³/2μ) ≈ 6.5 s.
+      blackholeState = { x, y: BLACKHOLE_ALTITUDE, z, start: elapsed, spawnDur: 2.2, active: true, formed: false, mu: 3.0e9 };
+      dom.altimeter.hidden = false;
+      dom.altLabel.textContent = 'SINGULARITY ALTITUDE';
+      dom.altitude.textContent = '4,000 M';
+      dom.hintText.textContent = 'Event horizon opening — nothing escapes';
+      beginCameraTween({
+        tx: x,
+        tz: z,
+        ty: 1400,
+        distance: clamp(weapon.pull * 4.5, 9000, 16000),
+        azimuth: cameraRig.azimuth,
+        pitch: 0.30
+      }, 2.0);
+      playBlackholeRumble();
+      return;
+    }
     contrailSystem = meteor
       ? null
       : createParticleSystem(LOW_POWER ? 260 : 520, smokeTexture, THREE.NormalBlending, 3);
@@ -2977,7 +3283,7 @@
   function spawnMirvVehicles(x, z, startY, fx, primaryDuration) {
     mirvVehicles = [];
     const extras = mirvCount - 1;
-    if (extras < 1 || isMeteor(state.weapon)) return;
+    if (extras < 1 || isMeteor(state.weapon) || isBlackhole(state.weapon)) return;
     const spread = clamp(fx.r5 * 0.85, 700, 3800);
     for (let i = 0; i < extras; i++) {
       // Fan the RVs around the primary so a big volley doesn't clump.
@@ -3128,6 +3434,28 @@
     bombLight = null;
     bombFall = null;
     radiationSources = [];
+    // Abductions cut short by a new strike still hold live instance matrices
+    // mid-air; park them hidden so nothing floats orphaned over the city.
+    for (const a of state.abductees) {
+      if (a.rec.mesh) {
+        a.rec.mesh.setMatrixAt(a.rec.index, ZERO_MATRIX);
+        a.rec.mesh.instanceMatrix.needsUpdate = true;
+      }
+    }
+    for (const a of state.landAbductees) a.lm.group.visible = false;
+    state.abductees = [];
+    state.landAbductees = [];
+    blackholeGroup = null;
+    blackholeUniforms = null;
+    blackholeDiskMat = null;
+    blackholeHaloMat = null;
+    blackholePhotonRing = null;
+    blackholeLight = null;
+    blackholeAccretion = null;
+    blackholeState = null;
+    stopBlackholeAudio();
+    if (waterUniforms) waterUniforms.uStorm.value = 0;
+    if (skyUniforms) skyUniforms.uDarken.value = 0;
     dom.altimeter.hidden = true;
   }
 
@@ -3653,6 +3981,55 @@
     };
   }
 
+  // The singularity never explodes: it switches on. Damage is queued as
+  // abductions and rim fires; no crater, boom, fallout or fireball.
+  function detonateBlackhole(x, z) {
+    const fx = state.effects;
+    const weapon = state.weapon;
+    if (targetRings) {
+      if (targetRings.helpers) targetRings.helpers.forEach((h) => { h.visible = false; });
+      if (targetRings.fills) targetRings.fills.forEach((f) => { f.visible = false; });
+    }
+    state.phase = 'blast';
+    state.blastStart = elapsed;
+    state.reportStart = elapsed;
+    state.fireTimer = 0;
+    dom.altimeter.hidden = true;
+    document.body.dataset.phase = 'blast';
+    dom.status.dataset.state = 'blast';
+    dom.statusLabel.textContent = 'SINGULARITY ACTIVE';
+    dom.statusDetail.textContent = `${weapon.name} · DEVOURING THE CITY`;
+
+    dom.flash.classList.remove('fire', 'void');
+    void dom.flash.offsetWidth;
+    dom.flash.classList.add('void');
+
+    state.smoke = createParticleSystem(LOW_POWER ? 1200 : 3200, smokeTexture, THREE.NormalBlending, 5);
+    state.plume = createParticleSystem(LOW_POWER ? 480 : 1100, smokeTexture, THREE.NormalBlending, 4);
+    state.glow = createParticleSystem(LOW_POWER ? 320 : 800, glowTexture, THREE.AdditiveBlending, 6);
+    debrisSystem = makeDebrisSystem(LOW_POWER ? 420 : 760);
+    state.pendingQueues.push({ start: elapsed, index: 0, events: planBlackholeDamage(x, z) });
+    applyTreeDamage(x, z, fx);
+    damageBridges(x, z, fx);
+
+    cameraRig.shakeSeed = Math.random() * 1000;
+    cameraRig.shake = 1.6;
+    killCamT = 0;
+    buzz([70, 60, 150]);
+
+    beginCameraTween({
+      tx: x,
+      tz: z,
+      ty: 2400,
+      distance: 14000,
+      azimuth: cameraRig.azimuth - 0.08,
+      pitch: 0.30
+    }, 8.0);
+
+    showReport();
+    state.statsDirty = true;
+  }
+
   function detonate(x, z, secondary = false) {
     const fx = state.effects;
     const weapon = state.weapon;
@@ -4031,6 +4408,43 @@
     return events;
   }
 
+  // Lift-offs spread over ~5 s (inner buildings first), then each victim flies
+  // 5-8 s under single-body gravity in updateAbductees.
+  function planBlackholeDamage(x, z) {
+    const fx = state.effects;
+    const events = [];
+
+    for (const rec of buildingRecords) {
+      if (rec.destroyed) continue;
+      const d = Math.hypot(rec.x - x, rec.z - z);
+      let type = null;
+      if (d <= fx.pull) type = 'abduct';
+      else if (d <= fx.fire) type = 'fire';
+      else if (d <= fx.r1 && Math.random() < 0.25) type = 'fire';
+      if (!type) continue;
+      const delay = type === 'abduct'
+        ? 0.4 + (d / fx.pull) * 4.2 + Math.random() * 0.6
+        : 0.5 + (d / fx.fire) * 3;
+      events.push({ delay, type, kind: 'building', rec, distance: d });
+    }
+
+    for (const lm of landmarks) {
+      if (lm.destroyed) continue;
+      const d = Math.hypot(lm.x - x, lm.z - z);
+      let type = null;
+      if (d <= fx.pull * 0.75) type = 'abduct';
+      else if (d <= fx.fire) type = 'collapse';
+      if (!type) continue;
+      const delay = type === 'abduct'
+        ? 0.4 + (d / (fx.pull * 0.75)) * 4.2 + Math.random() * 0.6
+        : 0.5 + (d / fx.fire) * 3;
+      events.push({ delay, type, kind: 'landmark', rec: lm, distance: d });
+    }
+
+    events.sort((a, b) => a.delay - b.delay);
+    return events;
+  }
+
   function applyDamageEvent(event) {
     if (event.kind === 'building') applyBuildingDamage(event);
     else if (event.kind === 'landmark') applyLandmarkDamage(event);
@@ -4061,6 +4475,31 @@
     const blast = state.target;
     const fx = state.effects;
     const rng = Math.random();
+
+    if (event.type === 'abduct') {
+      rec.destroyed = true;
+      rec.status = 'destroyed';
+      state.destroyed++;
+      hideAccessory(rec);
+      _tempColor.setHex(0x272622);
+      rec.mesh.setColorAt(rec.index, _tempColor);
+      if (rec.mesh.instanceColor) rec.mesh.instanceColor.needsUpdate = true;
+      const axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+      if (axis.lengthSq() < 0.001) axis.set(0, 1, 0);
+      axis.normalize();
+      state.abductees.push({
+        rec,
+        px: rec.x, py: 0.2, pz: rec.z,
+        vx: 0, vy: 0, vz: 0,
+        axis,
+        spin: 0.5 + Math.random() * 1.2,
+        angle: 0,
+        yawQuat: new THREE.Quaternion().setFromAxisAngle(_up, rec.rot),
+        lifted: false
+      });
+      state.statsDirty = true;
+      return;
+    }
 
     if (event.type === 'vaporize' || event.type === 'destroy') {
       rec.destroyed = true;
@@ -4146,6 +4585,28 @@
     if (lm.destroyed) return;
     const blast = state.target;
     const rng = Math.random();
+
+    if (event.type === 'abduct') {
+      lm.destroyed = true;
+      lm.status = 'destroyed';
+      state.destroyed++;
+      state.landmarksDestroyed++;
+      const axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+      if (axis.lengthSq() < 0.001) axis.set(0, 1, 0);
+      axis.normalize();
+      state.landAbductees.push({
+        lm,
+        px: lm.group.position.x, py: lm.group.position.y, pz: lm.group.position.z,
+        vx: 0, vy: 0, vz: 0,
+        axis,
+        spin: 0.4 + Math.random() * 0.9,
+        angle: 0,
+        startQuat: lm.group.quaternion.clone(),
+        lifted: false
+      });
+      state.statsDirty = true;
+      return;
+    }
 
     if (event.type === 'vaporize' || event.type === 'destroy') {
       lm.destroyed = true;
@@ -4248,6 +4709,124 @@
         lm.collapse = null;
         lm.status = 'destroyed';
         state.landCollapsers.splice(i, 1);
+      }
+    }
+  }
+
+  // Single-body gravity: everything queued for abduction falls toward the
+  // horizon (μ = 3.0e9, accel capped so near-hole motion stays readable),
+  // tumbling faster as it approaches and spaghetti-fying inside 3 horizon
+  // radii before vanishing. No rubble — the matter is gone.
+  const _bhTarget = new THREE.Vector3();
+  const _bhDir = new THREE.Vector3();
+  function updateAbductees(dt) {
+    const bh = blackholeState;
+    if (!bh || !bh.active) return;
+    if (!state.abductees.length && !state.landAbductees.length) return;
+    const horizon = state.effects.horizon;
+    _bhTarget.set(bh.x, bh.y, bh.z);
+    const dirtyMeshes = new Set();
+
+    for (let i = state.abductees.length - 1; i >= 0; i--) {
+      const a = state.abductees[i];
+      const rec = a.rec;
+      if (!a.lifted) {
+        a.lifted = true;
+        spawnDustCloud(rec.x, rec.z, Math.max(rec.w * 0.6, 18), LOW_POWER ? 2 : 4, rec.h * 0.2);
+        if (debrisSystem) {
+          debrisSystem.spawn({
+            x: rec.x + (Math.random() - 0.5) * rec.w * 0.5,
+            y: 6 + Math.random() * Math.min(rec.h, 90),
+            z: rec.z + (Math.random() - 0.5) * rec.d * 0.5,
+            vx: (Math.random() - 0.5) * 30,
+            vy: 120 + Math.random() * 160,
+            vz: (Math.random() - 0.5) * 30,
+            sx: 3 + Math.random() * 10,
+            sy: 3 + Math.random() * 8,
+            sz: 3 + Math.random() * 10,
+            gravity: 4,
+            life: 6,
+            color: 0x6b675d
+          });
+        }
+        if (Math.random() < 0.3) addBuildingFire(rec.x, rec.z, Math.min(rec.h * 0.5, 90), 0.8);
+      }
+
+      _bhDir.set(_bhTarget.x - a.px, _bhTarget.y - a.py, _bhTarget.z - a.pz);
+      const r = _bhDir.length() || 1;
+      _bhDir.divideScalar(r);
+      const accel = Math.min(bh.mu / (r * r), 900);
+      // infall + tangential swirl: v += (dir + cross(up, dir) * 0.25) * a * dt
+      const gain = accel * dt;
+      a.vx += (_bhDir.x + _bhDir.z * 0.25) * gain;
+      a.vy += _bhDir.y * gain;
+      a.vz += (_bhDir.z - _bhDir.x * 0.25) * gain;
+      a.px += a.vx * dt;
+      a.py += a.vy * dt;
+      a.pz += a.vz * dt;
+      a.angle += a.spin * (0.6 + Math.min(2.4, accel / 260)) * dt;
+
+      if (r < horizon || a.py > 12000) {
+        rec.mesh.setMatrixAt(rec.index, ZERO_MATRIX);
+        dirtyMeshes.add(rec.mesh);
+        state.abductees.splice(i, 1);
+        continue;
+      }
+
+      let w = rec.w, h = rec.h, d = rec.d;
+      if (r < horizon * 3) {
+        const s = clamp((r - horizon) / (horizon * 2), 0, 1);
+        w *= s;
+        d *= s;
+        h *= s * (1 + (1 - s) * 0.55);
+      }
+      _tiltQuat.setFromAxisAngle(a.axis, a.angle);
+      _dummy.quaternion.copy(_tiltQuat).multiply(a.yawQuat).normalize();
+      _dummy.position.set(a.px, a.py, a.pz);
+      _dummy.scale.set(w, h, d);
+      _dummy.updateMatrix();
+      rec.mesh.setMatrixAt(rec.index, _dummy.matrix);
+      dirtyMeshes.add(rec.mesh);
+
+      if (state.smoke && Math.random() < 0.05) {
+        state.smoke.spawn({
+          x: a.px, y: a.py, z: a.pz,
+          vx: _bhDir.x * 240, vy: _bhDir.y * 240, vz: _bhDir.z * 240,
+          size0: 26, size1: 10,
+          life: 0.8,
+          alpha: 0.3,
+          drag: 0.1,
+          color: 0x5c5750
+        });
+      }
+    }
+    for (const mesh of dirtyMeshes) mesh.instanceMatrix.needsUpdate = true;
+
+    for (let i = state.landAbductees.length - 1; i >= 0; i--) {
+      const a = state.landAbductees[i];
+      const lm = a.lm;
+      if (!a.lifted) {
+        a.lifted = true;
+        spawnDustCloud(lm.x, lm.z, lm.radius * 1.2, LOW_POWER ? 3 : 6, lm.h * 0.2);
+      }
+      _bhDir.set(_bhTarget.x - a.px, _bhTarget.y - a.py, _bhTarget.z - a.pz);
+      const r = _bhDir.length() || 1;
+      _bhDir.divideScalar(r);
+      const accel = Math.min(bh.mu / (r * r), 900);
+      const gain = accel * dt;
+      a.vx += (_bhDir.x + _bhDir.z * 0.25) * gain;
+      a.vy += _bhDir.y * gain;
+      a.vz += (_bhDir.z - _bhDir.x * 0.25) * gain;
+      a.px += a.vx * dt;
+      a.py += a.vy * dt;
+      a.pz += a.vz * dt;
+      a.angle += a.spin * (0.6 + Math.min(2.4, accel / 260)) * dt;
+      lm.group.position.set(a.px, a.py, a.pz);
+      _tiltQuat.setFromAxisAngle(a.axis, a.angle);
+      lm.group.quaternion.copy(_tiltQuat).multiply(a.startQuat).normalize();
+      if (r < horizon || a.py > 12000) {
+        lm.group.visible = false;
+        state.landAbductees.splice(i, 1);
       }
     }
   }
@@ -4569,15 +5148,28 @@
     if (state.fireTimer < 0.46) return;
     state.fireTimer = 0;
     const n = LOW_POWER ? 1 : 2;
+    // Near an active singularity, embers arc toward the hole (smoke keeps
+    // rising); the bias scales with proximity to the pull centre.
     for (let i = 0; i < n; i++) {
       const p = fireSpawnPoints[Math.floor(Math.random() * fireSpawnPoints.length)];
+      let biasX = 0;
+      let biasZ = 0;
+      if (blackholeState && blackholeState.active) {
+        const pull = state.effects.pull;
+        const dx = blackholeState.x - p.x;
+        const dz = blackholeState.z - p.z;
+        const d = Math.hypot(dx, dz) || 1;
+        const strength = pull * 0.3 * clamp(1 - d / (pull * 3), 0, 1);
+        biasX = (dx / d) * strength;
+        biasZ = (dz / d) * strength;
+      }
       state.glow.spawn({
         x: p.x + (Math.random() - 0.5) * 18,
         y: p.y + 2 + Math.random() * 8,
         z: p.z + (Math.random() - 0.5) * 18,
-        vx: (Math.random() - 0.5) * 7,
+        vx: (Math.random() - 0.5) * 7 + biasX,
         vy: 12 + Math.random() * 22,
-        vz: (Math.random() - 0.5) * 7,
+        vz: (Math.random() - 0.5) * 7 + biasZ,
         size0: 8 + Math.random() * 18,
         size1: 18 + Math.random() * 38,
         life: 0.7 + Math.random() * 1.3,
@@ -4613,6 +5205,7 @@
   let fallSeq = 0;
   let sirenNode = null;
   let sirenGain = null;
+  let blackholeAudio = null;
 
   function stopFallAudio() {
     fallSeq++;
@@ -4841,6 +5434,80 @@
     osc.start(now);
     osc.stop(now + duration + 0.05);
     fallAudio = osc;
+  }
+
+  // Pure-synth singularity drone: sub-bass saw through a resonant lowpass with
+  // a slow gain swell, plus a band-passed noise sweep that rises as the event
+  // horizon opens. Runs ~26 s and stops itself.
+  function playBlackholeRumble() {
+    ensureAudio();
+    if (!audioCtx || !masterGain) return;
+    stopBlackholeAudio();
+    const now = audioCtx.currentTime;
+    const DURATION = 26;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.17, now + 4);
+    gain.gain.setValueAtTime(0.17, now + DURATION - 4);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + DURATION);
+    gain.connect(masterGain);
+
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(32, now);
+    osc.frequency.linearRampToValueAtTime(26, now + DURATION);
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(170, now);
+    lp.Q.value = 6;
+    osc.connect(lp);
+    lp.connect(gain);
+
+    const noiseBuf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * 2), audioCtx.sampleRate);
+    const noiseData = noiseBuf.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = noiseBuf;
+    noise.loop = true;
+    const bp = audioCtx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 1.4;
+    bp.frequency.setValueAtTime(90, now);
+    bp.frequency.exponentialRampToValueAtTime(420, now + DURATION * 0.7);
+    bp.frequency.exponentialRampToValueAtTime(140, now + DURATION);
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.38, now + 6);
+    noiseGain.gain.setValueAtTime(0.38, now + DURATION - 5);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + DURATION);
+    noise.connect(bp);
+    bp.connect(noiseGain);
+    noiseGain.connect(gain);
+
+    osc.start(now);
+    noise.start(now);
+    osc.stop(now + DURATION + 0.1);
+    noise.stop(now + DURATION + 0.1);
+    blackholeAudio = { gain, nodes: [osc, noise] };
+  }
+
+  function stopBlackholeAudio() {
+    if (!blackholeAudio) return;
+    const { gain, nodes } = blackholeAudio;
+    blackholeAudio = null;
+    if (audioCtx && gain) {
+      const now = audioCtx.currentTime;
+      try {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), now);
+        gain.gain.linearRampToValueAtTime(0.0001, now + 0.35);
+      } catch (e) {}
+    }
+    for (const node of nodes) {
+      if (audioCtx) {
+        try { node.stop(audioCtx.currentTime + 0.4); } catch (e) {}
+      }
+    }
   }
 
   function playExplosion(kt, meteor = false, bx, by, bz) {
@@ -5099,6 +5766,7 @@
     };
     fill(dom.select, NUKES, modeWeapons.nuke.id);
     fill(dom.meteorSelect, METEORS, modeWeapons.meteor.id);
+    fill(dom.blackholeSelect, BLACKHOLES, modeWeapons.blackhole.id);
   }
 
   function updateSpecCard(weapon) {
@@ -5106,7 +5774,7 @@
     dom.weaponImage.alt = weapon.name;
     dom.weaponFlag.innerHTML = FLAGS[weapon.flag] || '';
     dom.weaponName.textContent = weapon.name;
-    dom.yieldBadge.textContent = fmtYield(weapon.yieldKt);
+    dom.yieldBadge.textContent = isBlackhole(weapon) ? fmtKm(weapon.pull) : fmtYield(weapon.yieldKt);
     dom.specWeight.textContent = fmtWeightLb(weapon.weightLb);
     dom.specHeight.textContent = fmtFt(weapon.heightFt);
     dom.specWidth.textContent = fmtFt(weapon.widthFt);
@@ -5117,7 +5785,10 @@
   function updateWeaponUI() {
     selectedEffects = effectsForWeapon(selectedWeapon);
     updateSpecCard(selectedWeapon);
-    if (isMeteor(selectedWeapon)) {
+    if (isBlackhole(selectedWeapon)) {
+      dom.weaponMeta.textContent = 'EVENT HORIZON · 4000 M ALTITUDE';
+      dom.weaponLabel.textContent = 'SINGULARITY';
+    } else if (isMeteor(selectedWeapon)) {
       dom.weaponMeta.textContent = `GROUND IMPACT · CRATER Ø ${fmtCrater(selectedEffects.crater)}`;
       dom.weaponLabel.textContent = 'IMPACTOR';
     } else {
@@ -5125,12 +5796,17 @@
       dom.weaponLabel.textContent = 'WARHEAD';
     }
     const meteorMode = mode === 'meteor';
-    dom.select.hidden = meteorMode;
+    const blackholeMode = mode === 'blackhole';
+    dom.select.hidden = meteorMode || blackholeMode;
     dom.meteorSelect.hidden = !meteorMode;
+    dom.blackholeSelect.hidden = !blackholeMode;
     dom.select.value = modeWeapons.nuke.id;
     dom.meteorSelect.value = modeWeapons.meteor.id;
-    dom.modeNuke.setAttribute('aria-pressed', String(!meteorMode));
+    dom.blackholeSelect.value = modeWeapons.blackhole.id;
+    dom.mirvRow.style.display = blackholeMode ? 'none' : '';
+    dom.modeNuke.setAttribute('aria-pressed', String(mode === 'nuke'));
     dom.modeMeteor.setAttribute('aria-pressed', String(meteorMode));
+    dom.modeBlackhole.setAttribute('aria-pressed', String(blackholeMode));
   }
 
   function setMode(next) {
@@ -5142,7 +5818,9 @@
     if (state.phase === 'idle' || state.phase === 'aftermath') {
       setStatus(
         'READY TO STRIKE',
-        isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city',
+        isBlackhole(selectedWeapon)
+          ? 'Pick the rift center'
+          : isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city',
         'ready'
       );
     }
@@ -5202,8 +5880,10 @@
   function setInputEnabled(enabled) {
     dom.select.disabled = !enabled;
     dom.meteorSelect.disabled = !enabled;
+    dom.blackholeSelect.disabled = !enabled;
     dom.modeNuke.disabled = !enabled;
     dom.modeMeteor.disabled = !enabled;
+    dom.modeBlackhole.disabled = !enabled;
     for (const btn of dom.mirvOpts) btn.disabled = !enabled;
     dom.cityNyc.disabled = !enabled;
     dom.cityDubai.disabled = !enabled;
@@ -5219,6 +5899,8 @@
     state.pendingQueues = [];
     state.collapsers = [];
     state.landCollapsers = [];
+    state.abductees = [];
+    state.landAbductees = [];
     state.fallingBridges = [];
     state.statsDirty = false;
     state.blastStart = 0;
@@ -5230,9 +5912,15 @@
     dom.altimeter.hidden = true;
     dom.radBadge.hidden = true;
     radShownLevel = null;
-    dom.flash.classList.remove('fire');
+    dom.flash.classList.remove('fire', 'void');
     dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click the city to strike · R to rebuild';
-    setStatus('READY TO STRIKE', isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city', 'ready');
+    setStatus(
+      'READY TO STRIKE',
+      isBlackhole(selectedWeapon)
+        ? 'Pick the rift center'
+        : isMeteor(selectedWeapon) ? 'Pick an impact point' : 'Choose a spot on the city',
+      'ready'
+    );
     updateWeaponUI();
     if (!initial) {
       state.statsDirty = true;
@@ -5264,8 +5952,21 @@
       }
     });
 
+    dom.blackholeSelect.addEventListener('change', () => {
+      const found = BLACKHOLES.find((b) => b.id === dom.blackholeSelect.value);
+      if (!found) return;
+      modeWeapons.blackhole = found;
+      if (mode !== 'blackhole') return;
+      selectedWeapon = found;
+      updateWeaponUI();
+      if (state.phase === 'idle') {
+        setStatus('READY TO STRIKE', 'Pick the rift center', 'ready');
+      }
+    });
+
     dom.modeNuke.addEventListener('click', () => setMode('nuke'));
     dom.modeMeteor.addEventListener('click', () => setMode('meteor'));
+    dom.modeBlackhole.addEventListener('click', () => setMode('blackhole'));
 
     for (const btn of dom.mirvOpts) {
       btn.addEventListener('click', () => setMirv(Number(btn.dataset.count)));
@@ -5333,12 +6034,18 @@
   }
 
   function updateAftermathStatus() {
-    if (state.phase === 'blast' && elapsed - state.blastStart > 2.7) {
+    const blackhole = isBlackhole(state.weapon);
+    const threshold = blackhole ? 12 : 2.7;
+    if (state.phase === 'blast' && elapsed - state.blastStart > threshold) {
       state.phase = 'aftermath';
       document.body.dataset.phase = 'aftermath';
       setInputEnabled(true);
       dom.hintText.textContent = 'Drag to orbit · Scroll to zoom · Click again for another strike · R to rebuild';
-      setStatus(isMeteor(state.weapon) ? 'IMPACT COMPLETE' : 'BLAST COMPLETE', aftermathSummary(), 'aftermath');
+      setStatus(
+        blackhole ? 'DEVOURING COMPLETE' : isMeteor(state.weapon) ? 'IMPACT COMPLETE' : 'BLAST COMPLETE',
+        aftermathSummary(),
+        'aftermath'
+      );
     }
     if (state.phase === 'aftermath') {
       dom.statusDetail.textContent = aftermathSummary();
@@ -5396,18 +6103,25 @@
     }
 
     if (state.phase === 'falling') {
-      updateBombFall();
+      if (isBlackhole(state.weapon)) {
+        updateBlackholeSpawn();
+        updateBlackhole();
+      } else {
+        updateBombFall();
+      }
       updateMirvVehicles();
     }
 
     if (state.phase === 'blast' || state.phase === 'aftermath') {
       processPendingDamage();
       updateCollapsers();
+      updateAbductees(dt);
       updateExplosionVisuals();
       updateMirvVehicles();
       updateConvoys();
       updateFallingBridges(dt);
       updateFireEmitters(dt);
+      if (blackholeState && blackholeState.active) updateBlackhole();
       updateAftermathStatus();
       updateReportUI();
     }
@@ -5482,6 +6196,7 @@
     setMode,
     NUKES,
     METEORS,
+    BLACKHOLES,
     get selectedWeapon() { return selectedWeapon; },
     selectNuke(id) {
       const nuke = NUKES.find((n) => n.id === id);
@@ -5501,6 +6216,16 @@
       dom.meteorSelect.value = id;
       updateWeaponUI();
     },
+    selectBlackhole(id) {
+      const singularity = BLACKHOLES.find((b) => b.id === id);
+      if (!singularity) return;
+      modeWeapons.blackhole = singularity;
+      if (mode !== 'blackhole') return;
+      selectedWeapon = singularity;
+      dom.blackholeSelect.value = id;
+      updateWeaponUI();
+    },
+    get blackholeActive() { return !!(blackholeState && blackholeState.active); },
     get mapCanvas() { return mapCanvas; },
     get trees() { return treeRecords; },
     get clouds() { return cloudPuffs; },
